@@ -1,0 +1,25 @@
+{
+  "name": "croma-studio",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plataforma profissional para análise de cores gráficas",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:frontend": "npm run dev --workspace @croma/frontend",
+    "dev:backend": "npm run dev --workspace @croma/backend",
+    "build": "npm run build --workspace @croma/frontend",
+    "lint": "npm run lint --workspace @croma/frontend",
+    "typecheck": "npm run typecheck --workspace @croma/frontend",
+    "dev:all": "concurrently --kill-others-on-fail \"npm run dev:backend\" \"npm run dev:frontend\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.4"
+  }
+}

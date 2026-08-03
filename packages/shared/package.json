@@ -1,0 +1,10 @@
+{
+  "name": "@croma/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "types": "src/types.ts",
+  "exports": {
+    "./types": "./src/types.ts"
+  }
+}
