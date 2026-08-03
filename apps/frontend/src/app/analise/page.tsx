@@ -70,7 +70,14 @@ export default function Analise() {
   useEffect(() => {
     if (!jobId) return;
     void getRemoteJob(jobId).then((remote) => {
-      if (remote) setSavedFaces(remote.faces);
+      if (remote) {
+        const savedOptions = remote.faces[0]?.options;
+        if (savedOptions) {
+          optionsRef.current = savedOptions;
+          setOptions(savedOptions);
+        }
+        setSavedFaces(remote.faces);
+      }
     });
   }, [jobId]);
 

@@ -223,8 +223,12 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     convert: (rgbColors: Rgb[]) => Cmyk[];
   } | null>(null);
   const hydratedFaceRef = useRef<string | null>(null);
+  const storedFaceRef = useRef(false);
+  const previousOptionsRef = useRef(options);
 
   useEffect(() => {
+    if (previousOptionsRef.current !== options) storedFaceRef.current = false;
+    previousOptionsRef.current = options;
     optionsRef.current = options;
     customIccRef.current = customIcc;
   }, [customIcc, options]);
@@ -268,6 +272,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         };
 
         hydratedFaceRef.current = face.id;
+        storedFaceRef.current = true;
         imageRef.current = restoredImage;
         resultRef.current = restoredResult;
         blankRecipientRef.current = restoredImage.fileName.endsWith("-recipiente.png");
@@ -396,6 +401,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const handleFile = useCallback(
     async (file: File) => {
       ++generationRef.current;
+      storedFaceRef.current = false;
       const previousChip = lastChipRef.current;
       setStatus("processing");
       setError(null);
@@ -447,6 +453,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     converterRef.current = null;
     imageRef.current = null;
     blankRecipientRef.current = false;
+    storedFaceRef.current = false;
     magneticStripeRef.current = null;
     chipRef.current = null;
     resultRef.current = null;
@@ -503,6 +510,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
 
       imageRef.current = blank;
       blankRecipientRef.current = true;
+      storedFaceRef.current = false;
       const blankResult: AnalysisResult = {
         colors: [],
         mode: optionsRef.current.mode,
@@ -545,6 +553,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       };
 
       blankRecipientRef.current = false;
+      storedFaceRef.current = false;
       magneticStripeRef.current = null;
       setMagneticStripePosition(null);
       chipRef.current = null;
@@ -561,7 +570,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   }, [image, onImageStateChange]);
 
   useEffect(() => {
-    if (!imageRef.current || blankRecipientRef.current) return;
+    if (!imageRef.current || blankRecipientRef.current || storedFaceRef.current) return;
     void runAnalysis(imageRef.current, options);
   }, [options, runAnalysis]);
 
