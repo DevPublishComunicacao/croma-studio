@@ -3,6 +3,7 @@
 import { useCallback, useRef, useState } from "react";
 
 import { EyedropperIcon } from "@/components/EyedropperIcon";
+import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
 import { rgbToHex } from "@/lib/color/conversions";
 import type { Cmyk, LoadedImage, PickerMode, Rgb } from "@/lib/types";
 
@@ -27,6 +28,11 @@ interface HoverState {
   screenX: number;
   screenY: number;
   color: PickedColor;
+}
+
+function cmykLabel(color: PickedColor): string {
+  const cmyk = color.cmyk ?? rgbToCmykApprox(color.rgb);
+  return `C: ${cmyk.c}% M: ${cmyk.m}% Y: ${cmyk.y}% K: ${cmyk.k}%`;
 }
 
 export function ImagePreview({
@@ -242,7 +248,7 @@ export function ImagePreview({
                   className="rounded-md border border-slate-300 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-800 shadow-sm"
                   style={{ backgroundColor: "rgba(255,255,255,0.95)" }}
                 >
-                  {hover.color.hex}
+                   {cmykLabel(hover.color)}
                 </span>
               </div>
             </div>

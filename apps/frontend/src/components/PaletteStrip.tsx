@@ -16,19 +16,26 @@ function cmykLines(cmyk: Cmyk): [string, string] {
   return [`C: ${c}%  M: ${m}%`, `Y: ${y}%  K: ${k}%`];
 }
 
+function colorCmyk(color: DominantColor): Cmyk | null {
+  return color.cmykPrint ?? color.cmykApprox ?? null;
+}
+
 export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripProps) {
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   if (colors.length === 0) return null;
 
-  async function copyHex(color: DominantColor, index: number) {
+  async function copyCmyk(color: DominantColor, index: number) {
+    const cmyk = colorCmyk(color);
+    if (!cmyk) return;
+    const text = `C: ${cmyk.c}% M: ${cmyk.m}% Y: ${cmyk.y}% K: ${cmyk.k}%`;
     try {
       if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(color.hex);
+        await navigator.clipboard.writeText(text);
       } else {
         const textarea = document.createElement("textarea");
-        textarea.value = color.hex;
+        textarea.value = text;
         textarea.style.position = "fixed";
         textarea.style.opacity = "0";
         document.body.appendChild(textarea);
@@ -56,17 +63,21 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
           >
             <button
               type="button"
-              title={`${color.hex} · ${color.manual ? "Manual" : formatPercentage(color.percentage)}`}
-              aria-label={`Copiar ${color.hex}`}
-              onClick={() => copyHex(color, index)}
-              className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
-            >
-              <span
-                className="flex h-9 w-full items-center justify-center font-mono text-[10px] font-bold transition-colors"
+               title={`${color.manual ? "CMYK" : formatPercentage(color.percentage)}`}
+               aria-label={`Visualizar CMYK da cor ${color.rank}`}
+                onClick={() => copyCmyk(color, index)}
+                className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                <span
+                className="flex h-9 w-full flex-col items-center justify-center font-mono text-[9px] font-bold leading-tight transition-colors"
                 style={{ backgroundColor: color.hex }}
               >
                 <span className="text-white/0 drop-shadow-sm transition-colors group-hover:text-white/90">
-                  {copiedIndex === index ? "OK!" : color.hex}
+                   {copiedIndex === index
+                     ? "OK!"
+                     : colorCmyk(color)
+                       ? cmykLines(colorCmyk(color)!).map((line) => <span key={line}>{line}</span>)
+                       : "CMYK indisponível"}
                 </span>
               </span>
             </button>
@@ -96,14 +107,15 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
                 onClick={() => setEditingIndex(index)}
                 className="block w-full px-1 py-1 text-center focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
-                {hasName ? (
-                  <span className="line-clamp-2 font-mono text-[9px] font-bold uppercase leading-tight text-slate-700">
+                {hasName && (
+                  <span className="mb-0.5 block line-clamp-2 font-mono text-[9px] font-bold uppercase leading-tight text-slate-700">
                     {color.name}
                   </span>
-                ) : color.cmykPrint || color.cmykApprox ? (
+                )}
+                {colorCmyk(color) ? (
                   <span className="flex flex-col gap-0.5 font-mono text-[9px] font-semibold leading-tight text-slate-700">
-                    <span>{cmykLines(color.cmykPrint ?? color.cmykApprox)[0]}</span>
-                    <span>{cmykLines(color.cmykPrint ?? color.cmykApprox)[1]}</span>
+                    <span>{cmykLines(colorCmyk(color)!)[0]}</span>
+                    <span>{cmykLines(colorCmyk(color)!)[1]}</span>
                   </span>
                 ) : (
                   <span className="font-mono text-[9px] font-semibold leading-tight text-slate-700">
