@@ -2,8 +2,20 @@ import pg from "pg";
 
 const { Pool } = pg;
 
-export const pool = process.env.DATABASE_URL
-  ? new Pool({ connectionString: process.env.DATABASE_URL })
+const connectionString = process.env.DATABASE_URL;
+const isSupabasePooler = connectionString?.includes("supabase.com") ?? false;
+const rejectUnauthorized = process.env.DATABASE_SSL_REJECT_UNAUTHORIZED !== "false";
+const poolConnectionString = isSupabasePooler
+  ? connectionString.replace(/([?&])sslmode=[^&]+&?/, "$1")
+  : connectionString;
+
+export const pool = connectionString
+  ? new Pool({
+      connectionString: poolConnectionString,
+      ...(isSupabasePooler
+        ? { ssl: { rejectUnauthorized } }
+        : {}),
+    })
   : null;
 
 export async function withDatabase(handler) {
