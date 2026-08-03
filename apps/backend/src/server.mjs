@@ -308,6 +308,19 @@ async function handle(request, response) {
     sendJson(response, 200, { job });
     return;
   }
+  if (request.method === "DELETE" && parts.length === 4) {
+    const deleted = await withDatabase(async (pool) => {
+      const result = await pool.query("DELETE FROM jobs WHERE id = $1", [id]);
+      return result.rowCount > 0;
+    });
+    if (!deleted) {
+      sendJson(response, 404, errorBody("job_not_found", "Pedido não encontrado."));
+      return;
+    }
+    response.writeHead(204, headers());
+    response.end();
+    return;
+  }
   if (request.method === "PUT" && parts.length === 6 && parts[4] === "faces") {
     if (!new Set(["frente", "verso"]).has(parts[5])) {
       sendJson(response, 422, errorBody("invalid_side", "A face deve ser frente ou verso."));

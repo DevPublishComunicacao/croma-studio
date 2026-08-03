@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-import { getRemoteJob, listRemoteJobs, type RemoteJobSummary } from "@/lib/api/client";
+import { deleteRemoteJob, getRemoteJob, listRemoteJobs, type RemoteJobSummary } from "@/lib/api/client";
 import { clearJobData, clearJobId, saveJobData, saveJobId } from "@/lib/job/storage";
 
 function formatDate(value: string) {
@@ -21,6 +21,7 @@ export default function LayoutsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function handleNewLayout() {
     clearJobData();
@@ -40,6 +41,19 @@ export default function LayoutsPage() {
     saveJobData(result.job);
     saveJobId(result.job.id);
     router.push("/");
+  }
+
+  async function handleDeleteLayout(id: string) {
+    if (!window.confirm("Excluir este layout e todos os dados da análise?")) return;
+    setDeletingId(id);
+    setError(null);
+    const deleted = await deleteRemoteJob(id);
+    if (deleted) {
+      setItems((current) => current.filter((item) => item.id !== id));
+    } else {
+      setError("Não foi possível excluir este layout. Verifique se a API está ativa.");
+    }
+    setDeletingId(null);
   }
 
   useEffect(() => {
@@ -103,6 +117,7 @@ export default function LayoutsPage() {
                     <th className="px-5 py-3 font-bold">Sistema</th>
                     <th className="px-5 py-3 font-bold">Vendedor</th>
                     <th className="px-5 py-3 font-bold">Criado em</th>
+                    <th className="px-5 py-3 text-right font-bold">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
@@ -127,6 +142,23 @@ export default function LayoutsPage() {
                       <td className="px-5 py-4 text-slate-600">{item.sistema || "NÃO"}</td>
                       <td className="px-5 py-4 text-slate-600">{item.vendedor || "NÃO"}</td>
                       <td className="px-5 py-4 whitespace-nowrap text-slate-500">{formatDate(item.createdAt)}</td>
+                      <td className="px-5 py-4 text-right">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleDeleteLayout(item.id);
+                          }}
+                          disabled={deletingId === item.id}
+                          aria-label={`Excluir layout ${item.numeroPedido || item.cliente || item.id}`}
+                          title="Excluir layout"
+                          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-colors hover:bg-rose-50 hover:text-rose-600 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:cursor-wait disabled:opacity-50"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4" aria-hidden="true">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3" />
+                          </svg>
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

@@ -67,6 +67,17 @@ export async function getRemoteJob(jobId: string): Promise<{
   return request(`/api/v1/jobs/${jobId}`, { method: "GET" });
 }
 
+export async function deleteRemoteJob(jobId: string): Promise<boolean> {
+  try {
+    const response = await fetch(`${API_URL}/api/v1/jobs/${jobId}`, { method: "DELETE" });
+    if (!response.ok) console.warn(`Croma API ${response.status}: DELETE /api/v1/jobs/${jobId}`);
+    return response.ok;
+  } catch (error) {
+    console.warn("Croma API indisponível; não foi possível excluir o layout.", error);
+    return false;
+  }
+}
+
 export async function updateRemoteJob(jobId: string, job: JobData): Promise<void> {
   await request(`/api/v1/jobs/${jobId}`, {
     method: "PATCH",
