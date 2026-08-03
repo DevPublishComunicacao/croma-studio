@@ -825,6 +825,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         : manualColors.length > 0
           ? manualColors
           : result.colors;
+    if (colors.some((color) => color.cmykPrint == null) && colors.length > 0) return;
     void saveRemoteFace(jobId, side, imageRef.current, { ...result, colors });
   }, [jobId, mergeMode, pickedColors, result, side]);
 

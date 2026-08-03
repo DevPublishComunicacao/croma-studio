@@ -24,6 +24,8 @@ export interface RemoteFace {
   updatedAt: string;
 }
 
+const faceSaveQueues = new Map<string, Promise<void>>();
+
 async function request<T>(path: string, init: RequestInit): Promise<T | null> {
   try {
     const response = await fetch(`${API_URL}${path}`, {
@@ -72,25 +74,38 @@ export async function updateRemoteJob(jobId: string, job: JobData): Promise<void
   });
 }
 
-export async function saveRemoteFace(
+export function saveRemoteFace(
   jobId: string,
   side: "frente" | "verso",
   image: LoadedImage,
   result: AnalysisResult,
 ): Promise<void> {
-  await request(`/api/v1/jobs/${jobId}/faces/${side}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      imageName: image.fileName,
-      format: image.format,
-      imageWidth: image.width,
-      imageHeight: image.height,
-      previewDataUrl: image.previewUrl,
-      analysis: result,
-      options: result.options,
-      colors: result.colors,
-    }),
+  const key = `${jobId}:${side}`;
+  const previous = faceSaveQueues.get(key) ?? Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await request(`/api/v1/jobs/${jobId}/faces/${side}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          imageName: image.fileName,
+          format: image.format,
+          imageWidth: image.width,
+          imageHeight: image.height,
+          previewDataUrl: image.previewUrl,
+          analysis: result,
+          options: result.options,
+          colors: result.colors,
+        }),
+      });
+    });
+  faceSaveQueues.set(key, next);
+  void next.then(() => {
+    if (faceSaveQueues.get(key) === next) faceSaveQueues.delete(key);
+  }, () => {
+    if (faceSaveQueues.get(key) === next) faceSaveQueues.delete(key);
   });
+  return next;
 }
 
 export async function saveRemoteExport(
