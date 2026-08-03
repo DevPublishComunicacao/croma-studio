@@ -100,10 +100,10 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
                   <span className="line-clamp-2 font-mono text-[9px] font-bold uppercase leading-tight text-slate-700">
                     {color.name}
                   </span>
-                ) : color.cmykPrint ? (
+                ) : color.cmykPrint || color.cmykApprox ? (
                   <span className="flex flex-col gap-0.5 font-mono text-[9px] font-semibold leading-tight text-slate-700">
-                    <span>{cmykLines(color.cmykPrint)[0]}</span>
-                    <span>{cmykLines(color.cmykPrint)[1]}</span>
+                    <span>{cmykLines(color.cmykPrint ?? color.cmykApprox)[0]}</span>
+                    <span>{cmykLines(color.cmykPrint ?? color.cmykApprox)[1]}</span>
                   </span>
                 ) : (
                   <span className="font-mono text-[9px] font-semibold leading-tight text-slate-700">

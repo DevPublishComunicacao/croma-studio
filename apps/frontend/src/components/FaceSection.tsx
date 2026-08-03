@@ -381,9 +381,8 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setStatus("done");
         setProgress("");
 
-        if (jobId) void saveRemoteFace(jobId, side, img, res);
-
         await applyPrintCmyk(res, opts);
+        if (jobId) void saveRemoteFace(jobId, side, img, resultRef.current ?? res);
       } catch (err) {
         if (gen !== generationRef.current) return;
         setStatus("error");
