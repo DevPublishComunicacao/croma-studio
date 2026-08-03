@@ -10,6 +10,7 @@ interface ExportBarProps {
   onExportApproval: () => void;
   onReset: () => void;
   busy: boolean;
+  existingLayout?: boolean;
 }
 
 interface ActionButtonProps {
@@ -65,6 +66,7 @@ export function ExportBar({
   onExportApproval,
   onReset,
   busy,
+  existingLayout = false,
 }: ExportBarProps) {
   const [exporting, setExporting] = useState<string | null>(null);
 
@@ -122,7 +124,13 @@ export function ExportBar({
               d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          {exporting === "approval" ? "Gerando…" : "GERAL LAYOUT DE APROVAÇÃO"}
+          {exporting === "approval"
+            ? existingLayout
+              ? "Gravando…"
+              : "Gerando…"
+            : existingLayout
+              ? "GRAVAR ALTERAÇÕES"
+              : "GERAR LAYOUT DE APROVAÇÃO"}
         </button>
         <button
           type="button"

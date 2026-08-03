@@ -406,6 +406,7 @@ export default function Analise() {
               onExportApproval={() => void runCombined("approval", handlePreviewApproval)}
               onReset={() => {}}
               busy={combinedBusy}
+              existingLayout={Boolean(jobId)}
             />
             <p className="mt-2 text-xs text-slate-400">
               Os exports geram Frente e Verso combinados. Cada face pode ser
