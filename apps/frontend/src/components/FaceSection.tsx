@@ -227,7 +227,10 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const previousOptionsRef = useRef(options);
 
   useEffect(() => {
-    if (previousOptionsRef.current !== options) storedFaceRef.current = false;
+    if (previousOptionsRef.current !== options && hydratedFaceRef.current) {
+      hydratedFaceRef.current = null;
+      storedFaceRef.current = false;
+    }
     previousOptionsRef.current = options;
     optionsRef.current = options;
     customIccRef.current = customIcc;
@@ -401,6 +404,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const handleFile = useCallback(
     async (file: File) => {
       ++generationRef.current;
+      hydratedFaceRef.current = null;
       storedFaceRef.current = false;
       const previousChip = lastChipRef.current;
       setStatus("processing");
@@ -443,6 +447,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
 
   const handleRemoveImage = useCallback(() => {
     ++generationRef.current;
+    hydratedFaceRef.current = null;
 
     const currentImage = imageRef.current;
     if (currentImage?.previewUrl.startsWith("blob:") && !currentImage.previewUrlShared) {
@@ -509,6 +514,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       };
 
       imageRef.current = blank;
+      hydratedFaceRef.current = null;
       blankRecipientRef.current = true;
       storedFaceRef.current = false;
       const blankResult: AnalysisResult = {
@@ -553,6 +559,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       };
 
       blankRecipientRef.current = false;
+      hydratedFaceRef.current = null;
       storedFaceRef.current = false;
       magneticStripeRef.current = null;
       setMagneticStripePosition(null);
@@ -570,12 +577,20 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   }, [image, onImageStateChange]);
 
   useEffect(() => {
-    if (!imageRef.current || blankRecipientRef.current || storedFaceRef.current) return;
+    if (
+      !imageRef.current ||
+      blankRecipientRef.current ||
+      storedFaceRef.current ||
+      (initialFace && hydratedFaceRef.current === initialFace.id)
+    ) return;
     void runAnalysis(imageRef.current, options);
-  }, [options, runAnalysis]);
+  }, [initialFace, options, runAnalysis]);
 
   useEffect(() => {
-    if (blankRecipientRef.current) return;
+    if (
+      blankRecipientRef.current ||
+      (initialFace && hydratedFaceRef.current === initialFace.id)
+    ) return;
     if (resultRef.current) void applyPrintCmyk(resultRef.current, options);
     if (pickedRef.current.length > 0) {
       setCmykState("loading");
@@ -585,7 +600,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setCmykState("ready");
       });
     }
-  }, [applyPrintCmyk, convertColors, customIcc, options]);
+  }, [applyPrintCmyk, convertColors, customIcc, initialFace, options]);
 
   const handleNameChange = useCallback((index: number, name: string) => {
     const base = resultRef.current;
