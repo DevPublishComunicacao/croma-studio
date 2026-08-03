@@ -12,6 +12,7 @@ import { AnalysisError, analyzeImageData } from "@/lib/color/analysis";
 import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
 import { imageDataToPngDataUrl } from "@/lib/export/download";
 import { ImageLoadError, loadImageFile } from "@/lib/image/loader";
+import { decodeStoredNativeCmyk } from "@/lib/color/nativeCmyk";
 import { saveRemoteFace } from "@/lib/api/client";
 import type { RemoteFace } from "@/lib/api/client";
 import type {
@@ -223,23 +224,35 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     convert: (rgbColors: Rgb[]) => Cmyk[];
   } | null>(null);
   const hydratedFaceRef = useRef<string | null>(null);
+  const initialFacePendingRef = useRef(false);
   const storedFaceRef = useRef(false);
   const previousOptionsRef = useRef(options);
 
   useEffect(() => {
-    if (previousOptionsRef.current !== options && hydratedFaceRef.current) {
+    const savedOptions = initialFace?.options ?? initialFace?.analysis.options;
+    const savedOptionsMatch = savedOptions
+      ? savedOptions.mode === options.mode &&
+        savedOptions.ignoreWhite === options.ignoreWhite &&
+        savedOptions.ignoreBlack === options.ignoreBlack &&
+        savedOptions.ignoreGrays === options.ignoreGrays &&
+        savedOptions.ignoreTransparentBackground === options.ignoreTransparentBackground &&
+        savedOptions.iccProfileId === options.iccProfileId
+      : false;
+
+    if (previousOptionsRef.current !== options && hydratedFaceRef.current && !savedOptionsMatch) {
       hydratedFaceRef.current = null;
       storedFaceRef.current = false;
     }
     previousOptionsRef.current = options;
     optionsRef.current = options;
     customIccRef.current = customIcc;
-  }, [customIcc, options]);
+  }, [customIcc, initialFace, options]);
 
   useEffect(() => {
     if (!initialFace || hydratedFaceRef.current === initialFace.id) return;
     const face = initialFace;
     let cancelled = false;
+    initialFacePendingRef.current = true;
 
     async function hydrateFace() {
       try {
@@ -258,6 +271,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         if (!context) throw new Error("Não foi possível restaurar a imagem salva.");
         context.drawImage(source, 0, 0, canvas.width, canvas.height);
 
+        const restoredNativeCmyk = face.nativeCmyk ? decodeStoredNativeCmyk(face.nativeCmyk) : null;
         const restoredImage: LoadedImage = {
           fileName: face.imageName,
           format: face.format,
@@ -266,8 +280,8 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
           imageData: context.getImageData(0, 0, canvas.width, canvas.height),
           previewUrl: face.previewDataUrl,
           previewUrlShared: true,
-          nativeCmyk: null,
-          hasNativeCmyk: false,
+          nativeCmyk: restoredNativeCmyk,
+          hasNativeCmyk: restoredNativeCmyk != null,
         };
         const restoredResult: AnalysisResult = {
           ...face.analysis,
@@ -288,8 +302,10 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setStatus("done");
         setProgress("");
         setError(null);
+        initialFacePendingRef.current = false;
       } catch (err) {
         if (!cancelled) {
+          initialFacePendingRef.current = false;
           setStatus("error");
           setError(errorMessage(err));
         }
@@ -404,6 +420,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const handleFile = useCallback(
     async (file: File) => {
       ++generationRef.current;
+      initialFacePendingRef.current = false;
       hydratedFaceRef.current = null;
       storedFaceRef.current = false;
       const previousChip = lastChipRef.current;
@@ -411,7 +428,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       setError(null);
       setProgress("");
 
-       if (imageRef.current?.previewUrl.startsWith("blob:") && !imageRef.current.previewUrlShared) {
+      if (imageRef.current?.previewUrl.startsWith("blob:") && !imageRef.current.previewUrlShared) {
         URL.revokeObjectURL(imageRef.current.previewUrl);
       }
 
@@ -447,6 +464,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
 
   const handleRemoveImage = useCallback(() => {
     ++generationRef.current;
+    initialFacePendingRef.current = false;
     hydratedFaceRef.current = null;
 
     const currentImage = imageRef.current;
@@ -516,6 +534,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       imageRef.current = blank;
       hydratedFaceRef.current = null;
       blankRecipientRef.current = true;
+      initialFacePendingRef.current = false;
       storedFaceRef.current = false;
       const blankResult: AnalysisResult = {
         colors: [],
@@ -559,6 +578,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       };
 
       blankRecipientRef.current = false;
+      initialFacePendingRef.current = false;
       hydratedFaceRef.current = null;
       storedFaceRef.current = false;
       magneticStripeRef.current = null;
@@ -580,6 +600,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     if (
       !imageRef.current ||
       blankRecipientRef.current ||
+      initialFacePendingRef.current ||
       storedFaceRef.current ||
       (initialFace && hydratedFaceRef.current === initialFace.id)
     ) return;
@@ -589,6 +610,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   useEffect(() => {
     if (
       blankRecipientRef.current ||
+      initialFacePendingRef.current ||
       (initialFace && hydratedFaceRef.current === initialFace.id)
     ) return;
     if (resultRef.current) void applyPrintCmyk(resultRef.current, options);
@@ -817,7 +839,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const isAppend = isManual && mergeMode === "append";
 
   useEffect(() => {
-    if (!jobId || !imageRef.current || !result) return;
+    if (!jobId || !imageRef.current || !result || initialFacePendingRef.current) return;
     const manualColors = pickedRef.current;
     const colors =
       manualColors.length > 0 && mergeMode === "append"
@@ -987,7 +1009,8 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
                       image={image}
                       magneticStripePosition={magneticStripePosition}
                       chipPosition={chipPosition}
-                      pickerMode={pickerMode}
+                    pickerMode={pickerMode}
+                    savedColors={result?.colors}
                     onTogglePicker={handleTogglePicker}
                     onPick={handlePick}
                   />

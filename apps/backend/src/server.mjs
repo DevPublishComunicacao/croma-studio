@@ -98,6 +98,8 @@ function jobFromRow(row) {
 }
 
 function faceFromRow(row) {
+  const storedAnalysis = row.analysis ?? {};
+  const { __nativeCmyk, ...analysis } = storedAnalysis;
   return {
     id: row.id,
     side: row.side,
@@ -106,7 +108,8 @@ function faceFromRow(row) {
     imageWidth: row.image_width,
     imageHeight: row.image_height,
     previewDataUrl: row.preview_data_url,
-    analysis: row.analysis,
+    analysis,
+    nativeCmyk: __nativeCmyk ?? null,
     options: row.options,
     colors: row.colors,
     createdAt: row.created_at,
@@ -223,7 +226,7 @@ async function saveFace(pool, id, side, payload) {
       Number(payload.imageWidth ?? 0),
       Number(payload.imageHeight ?? 0),
       payload.previewDataUrl ?? "",
-      JSON.stringify(payload.analysis ?? {}),
+       JSON.stringify({ ...(payload.analysis ?? {}), __nativeCmyk: payload.nativeCmyk ?? null }),
       JSON.stringify(payload.options ?? {}),
       JSON.stringify(payload.colors ?? []),
     ],

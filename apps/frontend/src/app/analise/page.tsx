@@ -252,7 +252,7 @@ export default function Analise() {
     async (action: string, fn: () => void | Promise<void>) => {
       setCombinedBusy(true);
       try {
-        await persistCombinedData();
+        if (action !== "approval") await persistCombinedData();
         await fn();
       } finally {
         setCombinedBusy(false);
@@ -311,7 +311,8 @@ export default function Analise() {
     );
   }, [getCombinedData, combinedFileName]);
 
-  const handlePreviewApproval = useCallback(() => {
+  const handlePreviewApproval = useCallback(async () => {
+    await persistCombinedData();
     const parts = getCombinedData();
     if (parts.length === 0) return;
     saveApprovalPreview({
@@ -323,7 +324,7 @@ export default function Analise() {
       jobId,
     });
     router.push("/preview");
-  }, [getCombinedData, jobId, router]);
+  }, [getCombinedData, jobId, persistCombinedData, router]);
 
   return (
     <main className="mx-auto w-full max-w-7xl flex-1 px-4 pb-16 pt-8 sm:px-6 lg:px-8">

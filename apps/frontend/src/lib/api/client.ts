@@ -1,4 +1,5 @@
 import type { AnalysisResult, JobData, LoadedImage } from "@/lib/types";
+import { encodeNativeCmyk } from "@/lib/color/nativeCmyk";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
@@ -17,6 +18,7 @@ export interface RemoteFace {
   imageWidth: number;
   imageHeight: number;
   previewDataUrl: string;
+  nativeCmyk: string | null;
   analysis: AnalysisResult;
   options: AnalysisResult["options"];
   colors: AnalysisResult["colors"];
@@ -104,6 +106,7 @@ export function saveRemoteFace(
           imageWidth: image.width,
           imageHeight: image.height,
           previewDataUrl: image.previewUrl,
+          nativeCmyk: image.hasNativeCmyk && image.nativeCmyk ? encodeNativeCmyk(image.nativeCmyk) : null,
           analysis: result,
           options: result.options,
           colors: result.colors,

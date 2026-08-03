@@ -364,7 +364,7 @@ async function drawApprovalPage(
    });
    doc.setFont("helvetica", "normal");
    doc.setFontSize(8);
-   doc.text(valueOrPlaceholder(job?.acabamento), finishingBoxX + headerBoxW / 2, headerBoxY + 8.5, {
+    doc.text(job?.acabamento?.trim() || "", finishingBoxX + headerBoxW / 2, headerBoxY + 8.5, {
      baseline: "middle",
      align: "center",
    });

@@ -440,7 +440,7 @@ export function ApprovalPreviewPage({
                fontFamily: "Helvetica, Arial, sans-serif",
              }}
            >
-             {valueOrPlaceholder(job?.acabamento)}
+              {job?.acabamento?.trim() || ""}
            </div>
          </div>
         {hasVersoImage && <div

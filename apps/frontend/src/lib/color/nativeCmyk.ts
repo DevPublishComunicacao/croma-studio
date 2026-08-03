@@ -23,6 +23,26 @@ export interface NativeCmykDecode {
   cmyk: Uint8Array;
 }
 
+export function encodeNativeCmyk(data: Uint8Array): string {
+  let binary = "";
+  const chunkSize = 0x8000;
+  for (let offset = 0; offset < data.length; offset += chunkSize) {
+    binary += String.fromCharCode(...data.subarray(offset, offset + chunkSize));
+  }
+  return btoa(binary);
+}
+
+export function decodeStoredNativeCmyk(value: string): Uint8Array | null {
+  try {
+    const binary = atob(value);
+    const data = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index++) data[index] = binary.charCodeAt(index);
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 export function isCmykJpeg(data: Uint8Array): boolean {
   if (data[0] !== 0xff || data[1] !== 0xd8) return false;
 

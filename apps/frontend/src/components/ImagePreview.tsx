@@ -5,7 +5,7 @@ import { useCallback, useRef, useState } from "react";
 import { EyedropperIcon } from "@/components/EyedropperIcon";
 import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
 import { rgbToHex } from "@/lib/color/conversions";
-import type { Cmyk, LoadedImage, PickerMode, Rgb } from "@/lib/types";
+import type { Cmyk, DominantColor, LoadedImage, PickerMode, Rgb } from "@/lib/types";
 
 export interface PickedColor {
   rgb: Rgb;
@@ -20,6 +20,7 @@ interface ImagePreviewProps {
   magneticStripePosition?: string | null;
   chipPosition?: string | null;
   pickerMode: PickerMode | null;
+  savedColors?: DominantColor[];
   onTogglePicker: (mode: PickerMode) => void;
   onPick: (color: PickedColor) => void;
 }
@@ -40,6 +41,7 @@ export function ImagePreview({
   magneticStripePosition,
   chipPosition,
   pickerMode,
+  savedColors = [],
   onTogglePicker,
   onPick,
 }: ImagePreviewProps) {
@@ -82,6 +84,28 @@ export function ImagePreview({
         };
       }
 
+      if (!cmyk) {
+        const savedSample = savedColors.reduce<{
+          color: DominantColor;
+          distance: number;
+        } | null>((closest, color) => {
+          if (color.x == null || color.y == null || !color.cmykPrint) return closest;
+          const sampleX = color.x * Math.max(1, image.width - 1);
+          const sampleY = color.y * Math.max(1, image.height - 1);
+          const distance = Math.hypot(sampleX - x, sampleY - y);
+          return !closest || distance < closest.distance ? { color, distance } : closest;
+        }, null);
+
+        if (savedSample && savedSample.distance <= 4) {
+          cmyk = savedSample.color.cmykPrint;
+        }
+      }
+
+      // Keep legacy one-color records usable until their original images are resaved.
+      if (!cmyk && savedColors.length === 1 && savedColors[0].cmykPrint) {
+        cmyk = savedColors[0].cmykPrint;
+      }
+
       return {
         rgb,
         hex: rgbToHex(rgb),
@@ -90,7 +114,7 @@ export function ImagePreview({
         y: image.height > 1 ? y / (image.height - 1) : 0,
       };
     },
-    [image],
+    [image, savedColors],
   );
 
   const handleMouseMove = useCallback(
