@@ -32,7 +32,7 @@ interface HoverState {
 
 function cmykLabel(color: PickedColor): string {
   const cmyk = color.cmyk ?? rgbToCmykApprox(color.rgb);
-  return `C: ${cmyk.c}% M: ${cmyk.m}% Y: ${cmyk.y}% K: ${cmyk.k}%`;
+  return `C:${cmyk.c} M:${cmyk.m} Y:${cmyk.y} K:${cmyk.k}`;
 }
 
 export function ImagePreview({
@@ -245,7 +245,7 @@ export function ImagePreview({
               </div>
               <div className="absolute left-1/2 top-7 flex -translate-x-1/2 flex-col items-center gap-1">
                 <span
-                  className="rounded-md border border-slate-300 px-1.5 py-0.5 font-mono text-[11px] font-bold text-slate-800 shadow-sm"
+                   className="whitespace-nowrap rounded-md border border-slate-300 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-tight text-slate-800 shadow-sm"
                   style={{ backgroundColor: "rgba(255,255,255,0.95)" }}
                 >
                    {cmykLabel(hover.color)}

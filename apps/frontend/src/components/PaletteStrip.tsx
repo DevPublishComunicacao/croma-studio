@@ -11,13 +11,12 @@ interface PaletteStripProps {
   onNameChange: (index: number, name: string) => void;
 }
 
-function cmykLines(cmyk: Cmyk): [string, string] {
-  const { c, m, y, k } = cmyk;
-  return [`C: ${c}%  M: ${m}%`, `Y: ${y}%  K: ${k}%`];
-}
-
 function colorCmyk(color: DominantColor): Cmyk | null {
   return color.cmykPrint ?? color.cmykApprox ?? null;
+}
+
+function cmykInline(cmyk: Cmyk): string {
+  return `C:${cmyk.c} M:${cmyk.m} Y:${cmyk.y} K:${cmyk.k}`;
 }
 
 export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripProps) {
@@ -69,14 +68,14 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
                 className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
                 <span
-                className="flex h-9 w-full flex-col items-center justify-center font-mono text-[9px] font-bold leading-tight transition-colors"
+                className="flex h-9 w-full items-center justify-center whitespace-nowrap font-mono text-[8px] font-bold tracking-tight transition-colors"
                 style={{ backgroundColor: color.hex }}
               >
                 <span className="text-white/0 drop-shadow-sm transition-colors group-hover:text-white/90">
                    {copiedIndex === index
                      ? "OK!"
                      : colorCmyk(color)
-                       ? cmykLines(colorCmyk(color)!).map((line) => <span key={line}>{line}</span>)
+                       ? cmykInline(colorCmyk(color)!)
                        : "CMYK indisponível"}
                 </span>
               </span>
@@ -113,9 +112,8 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
                   </span>
                 )}
                 {colorCmyk(color) ? (
-                  <span className="flex flex-col gap-0.5 font-mono text-[9px] font-semibold leading-tight text-slate-700">
-                    <span>{cmykLines(colorCmyk(color)!)[0]}</span>
-                    <span>{cmykLines(colorCmyk(color)!)[1]}</span>
+                  <span className="block whitespace-nowrap font-mono text-[8px] font-semibold leading-tight tracking-tight text-slate-700">
+                    {cmykInline(colorCmyk(color)!)}
                   </span>
                 ) : (
                   <span className="font-mono text-[9px] font-semibold leading-tight text-slate-700">
