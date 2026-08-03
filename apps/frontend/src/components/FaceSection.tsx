@@ -801,6 +801,18 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const isManual = manualCount > 0;
   const isAppend = isManual && mergeMode === "append";
 
+  useEffect(() => {
+    if (!jobId || !imageRef.current || !result) return;
+    const manualColors = pickedRef.current;
+    const colors =
+      manualColors.length > 0 && mergeMode === "append"
+        ? [...result.colors, ...manualColors]
+        : manualColors.length > 0
+          ? manualColors
+          : result.colors;
+    void saveRemoteFace(jobId, side, imageRef.current, { ...result, colors });
+  }, [jobId, mergeMode, pickedColors, result, side]);
+
   const isVerticalImage = image ? image.height > image.width : false;
   const isHorizontalImage = image ? image.width > image.height : false;
   const isStripeAllowed = (value: MagneticStripePosition) => {
