@@ -1,8 +1,13 @@
 import { CMYK_DISCLAIMER } from "@/lib/color/analysis";
 import { downloadBlob } from "@/lib/export/download";
 import {
+  CHIP_DISPLACED_LABEL,
+  CHIP_PHYSICAL,
+  chipDisplacedLabelY,
   computeApprovalGeometry,
   computeApprovalPalette,
+  computeChipOverlay,
+  computePunchOverlays,
   computeTarjaOverlay,
   type ApprovalPalette,
 } from "@/lib/export/approvalLayout";
@@ -18,6 +23,8 @@ const RED: [number, number, number] = [220, 38, 38];
 const PAGE_W = 210;
 const PAGE_H = 297;
 const MARGIN = 10;
+
+const CARD_WIDTH_MM = 85.5;
 
 const LOGO_SRC = "/logo_novo_p.png";
 const LOGO_W = 24;
@@ -119,22 +126,60 @@ async function drawChipOverlay(
   result: AnalysisResult,
   fitted: { x: number; y: number; width: number; height: number },
 ) {
-  if (!result.chipPosition) return;
+  const punchScale = fitted.width / CARD_WIDTH_MM;
+  const chipMarginMm = result.imageHeight > result.imageWidth ? 9 : 13.5;
+  const chip = computeChipOverlay(
+    result.chipPosition,
+    result,
+    fitted.x,
+    fitted.y,
+    fitted.width,
+    fitted.height,
+    {
+      punchScale,
+      chipSize: CHIP_PHYSICAL,
+      margin: chipMarginMm * punchScale,
+    },
+  );
+  if (!chip) return;
   const chipUrl = await loadImageDataUrl("/chip.png");
-  if (!chipUrl) return;
-  const chipW = 7.92;
-  const chipH = 5.87;
-  let x = fitted.x + 4;
-  let y = fitted.y + 4;
-  if (result.chipPosition === "top-right") {
-    x = fitted.x + fitted.width - 4 - chipW;
-  } else if (result.chipPosition === "bottom-left") {
-    y = fitted.y + fitted.height - 4 - chipH;
-  } else if (result.chipPosition === "bottom-right") {
-    x = fitted.x + fitted.width - 4 - chipW;
-    y = fitted.y + fitted.height - 4 - chipH;
+  if (chipUrl) {
+    doc.addImage(chipUrl, "PNG", chip.x, chip.y, chip.w, chip.h);
   }
-  doc.addImage(chipUrl, "PNG", x, y, chipW, chipH);
+  if (chip.displaced) {
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(6);
+    doc.setTextColor(...RED);
+    doc.text(CHIP_DISPLACED_LABEL, fitted.x, chipDisplacedLabelY(result, fitted, 4));
+  }
+}
+
+function drawPunchOverlay(
+  doc: jsPDF,
+  result: AnalysisResult,
+  fitted: { x: number; y: number; width: number; height: number },
+) {
+  const punches = computePunchOverlays(
+    result.punchType,
+    result.punchPosition,
+    result.punchQuantity,
+    fitted.x,
+    fitted.y,
+    fitted.width,
+    fitted.height,
+    fitted.width / CARD_WIDTH_MM,
+  );
+  if (punches.length === 0) return;
+  doc.setFillColor(255, 255, 255);
+  doc.setDrawColor(0, 0, 0);
+  doc.setLineWidth(0.28);
+  for (const punch of punches) {
+    if (result.punchType === "round") {
+      doc.circle(punch.x + punch.w / 2, punch.y + punch.h / 2, punch.w / 2, "FD");
+    } else {
+      doc.roundedRect(punch.x, punch.y, punch.w, punch.h, punch.h / 2, punch.h / 2, "FD");
+    }
+  }
 }
 
 function drawPalette(doc: jsPDF, palette: ApprovalPalette, result: AnalysisResult) {
@@ -460,6 +505,7 @@ async function drawApprovalPage(
       fittedFront.height,
     );
     await drawChipOverlay(doc, result, fittedFront);
+    drawPunchOverlay(doc, result, fittedFront);
 
     const frontPalette = computeApprovalPalette({
       colors: result.colors,
@@ -511,6 +557,7 @@ async function drawApprovalPage(
         fittedVerso.height,
       );
       await drawChipOverlay(doc, verso.result, fittedVerso);
+      drawPunchOverlay(doc, verso.result, fittedVerso);
       const versoPalette = computeApprovalPalette({
         colors: verso.result.colors,
         x: paletteX,

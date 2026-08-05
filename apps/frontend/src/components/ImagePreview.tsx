@@ -1,10 +1,16 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EyedropperIcon } from "@/components/EyedropperIcon";
 import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
 import { rgbToHex } from "@/lib/color/conversions";
+import {
+  CHIP_DISPLACED_LABEL,
+  computeChipOverlay,
+  PUNCH_MARGIN,
+  PUNCH_PHYSICAL,
+} from "@/lib/export/approvalLayout";
 import type { Cmyk, DominantColor, LoadedImage, PickerMode, Rgb } from "@/lib/types";
 
 export interface PickedColor {
@@ -19,6 +25,9 @@ interface ImagePreviewProps {
   image: LoadedImage;
   magneticStripePosition?: string | null;
   chipPosition?: string | null;
+  punchType?: string | null;
+  punchPosition?: string | null;
+  punchQuantity?: string | null;
   pickerMode: PickerMode | null;
   savedColors?: DominantColor[];
   onTogglePicker: (mode: PickerMode) => void;
@@ -46,6 +55,9 @@ export function ImagePreview({
   image,
   magneticStripePosition,
   chipPosition,
+  punchType,
+  punchPosition,
+  punchQuantity,
   pickerMode,
   savedColors = [],
   onTogglePicker,
@@ -54,9 +66,132 @@ export function ImagePreview({
   const imgRef = useRef<HTMLImageElement | null>(null);
   const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
+  const [imgDisplayWidth, setImgDisplayWidth] = useState(0);
+  const [imgDisplayHeight, setImgDisplayHeight] = useState(0);
   const pickerActive = pickerMode !== null;
   const isBlankRecipient = image.fileName.endsWith("-recipiente.png");
-  const chipMargin = image.height > image.width ? "4mm" : "6mm";
+  const chipMarginMm = image.height > image.width ? 9 : 13.5;
+
+  const CARD_WIDTH_MM = 85.5;
+  const punchDisplayScale = imgDisplayWidth > 0 ? imgDisplayWidth / CARD_WIDTH_MM : 0;
+  const punchPhysical =
+    punchType === "round" ? PUNCH_PHYSICAL.round : PUNCH_PHYSICAL.ovoid;
+  const punchMargin = PUNCH_MARGIN * punchDisplayScale;
+  const punchW = punchPhysical.w * punchDisplayScale;
+  const punchH = punchPhysical.h * punchDisplayScale;
+
+  useEffect(() => {
+    const img = imgRef.current;
+    if (!img) return;
+    const update = () => {
+      const rect = img.getBoundingClientRect();
+      setImgDisplayWidth(rect.width);
+      setImgDisplayHeight(rect.height);
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(img);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [image.previewUrl]);
+
+  const chipRect = useMemo(
+    () =>
+      computeChipOverlay(
+        chipPosition ?? undefined,
+        {
+          punchType: punchType ?? undefined,
+          punchPosition: punchPosition ?? undefined,
+          punchQuantity: punchQuantity ?? undefined,
+        },
+        0,
+        0,
+        imgDisplayWidth,
+        imgDisplayHeight,
+        {
+          punchScale: punchDisplayScale,
+          chipSize: { w: 29.952, h: 22.176 },
+          margin: chipMarginMm * punchDisplayScale,
+        },
+      ),
+    [
+      chipMarginMm,
+      chipPosition,
+      imgDisplayHeight,
+      imgDisplayWidth,
+      punchDisplayScale,
+      punchPosition,
+      punchQuantity,
+      punchType,
+    ],
+  );
+
+  const punchOverlayStyles = useCallback((): React.CSSProperties[] => {
+    if (!punchType || !punchPosition || punchDisplayScale <= 0) return [];
+    const base = {
+      width: `${punchW}px`,
+      height: `${punchH}px`,
+      borderRadius:
+        punchType === "round" ? "50%" : `${punchH / 2}px`,
+    };
+    const margin = `${punchMargin}px`;
+
+    if ((punchQuantity ?? "simple") === "double") {
+      if (punchPosition !== "top-center" && punchPosition !== "bottom-center") return [];
+      const vertical =
+        punchPosition === "top-center" ? { top: margin } : { bottom: margin };
+      return [
+        { ...base, ...vertical, left: margin },
+        { ...base, ...vertical, right: margin },
+      ];
+    }
+
+    let position: React.CSSProperties;
+    switch (punchPosition) {
+      case "top-center":
+        position = { top: margin, left: "50%", transform: "translateX(-50%)" };
+        break;
+      case "top-right":
+        position = { top: margin, right: margin };
+        break;
+      case "middle-left":
+        position = { top: "50%", left: margin, transform: "translateY(-50%)" };
+        break;
+      case "middle-center":
+        position = { top: "50%", left: "50%", transform: "translate(-50%, -50%)" };
+        break;
+      case "middle-right":
+        position = { top: "50%", right: margin, transform: "translateY(-50%)" };
+        break;
+      case "bottom-left":
+        position = { bottom: margin, left: margin };
+        break;
+      case "bottom-center":
+        position = { bottom: margin, left: "50%", transform: "translateX(-50%)" };
+        break;
+      case "bottom-right":
+        position = { bottom: margin, right: margin };
+        break;
+      default:
+        position = { top: margin, left: margin };
+    }
+    return [{ ...base, ...position }];
+  }, [punchH, punchMargin, punchPosition, punchQuantity, punchType, punchW, punchDisplayScale]);
+
+  const tarjaBottomOverflow = useMemo(() => {
+    if (!magneticStripePosition || imgDisplayWidth <= 0 || imgDisplayHeight <= 0) return 0;
+    if (magneticStripePosition.startsWith("vertical")) {
+      return imgDisplayHeight * 0.075;
+    }
+    if (magneticStripePosition === "horizontal-top") {
+      const tarjaH = imgDisplayWidth * 1.15 * (621 / 1148);
+      return Math.max(0, tarjaH + (4 / 25.4) * 96 - imgDisplayHeight);
+    }
+    return 0;
+  }, [imgDisplayHeight, imgDisplayWidth, magneticStripePosition]);
 
   const readPixel = useCallback(
     (clientX: number, clientY: number): PickedColor | null => {
@@ -268,7 +403,7 @@ export function ImagePreview({
               isBlankRecipient ? "" : "rounded-lg"
             } ${pickerActive ? "cursor-none" : ""}`}
           />
-          {chipPosition && (
+          {chipRect && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src="/chip.png"
@@ -276,19 +411,30 @@ export function ImagePreview({
               aria-hidden="true"
               className="pointer-events-none absolute z-20"
               style={{
-                width: "29.952px",
-                height: "22.176px",
-                ...(chipPosition === "top-left"
-                  ? { top: chipMargin, left: chipMargin }
-                  : chipPosition === "top-right"
-                    ? { top: chipMargin, right: chipMargin }
-                    : chipPosition === "bottom-left"
-                      ? { bottom: chipMargin, left: chipMargin }
-                      : { bottom: chipMargin, right: chipMargin }),
+                left: chipRect.x,
+                top: chipRect.y,
+                width: chipRect.w,
+                height: chipRect.h,
               }}
             />
           )}
+          {punchOverlayStyles().map((style, index) => (
+            <div
+              key={index}
+              className="pointer-events-none absolute z-20 border border-black bg-white"
+              style={style}
+            />
+          ))}
         </div>
+
+        {chipRect?.displaced && (
+          <p
+            className="text-center text-[11px] font-bold uppercase tracking-wide text-red-600"
+            style={{ marginTop: tarjaBottomOverflow }}
+          >
+            {CHIP_DISPLACED_LABEL}
+          </p>
+        )}
 
         {pickerActive && hover && (
           <div

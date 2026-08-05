@@ -2,10 +2,17 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 
 import { ExportBar } from "@/components/ExportBar";
 import { CmykNotice } from "@/components/CmykNotice";
-import { FaceSection, type ChipPosition, type FaceSectionHandle } from "@/components/FaceSection";
+import {
+  FaceSection,
+  type ChipPosition,
+  type FaceSectionHandle,
+  type PunchPosition,
+  type PunchState,
+} from "@/components/FaceSection";
 import { OptionsPanel } from "@/components/OptionsPanel";
 
 import { exportCombinedPalettePng } from "@/lib/export/palettePng";
@@ -42,6 +49,34 @@ function mirrorChip(position: ChipPosition | null): ChipPosition | null {
   }
 }
 
+function mirrorPunchPosition(position: PunchPosition | null): PunchPosition | null {
+  if (!position) return null;
+  switch (position) {
+    case "top-left":
+      return "top-right";
+    case "top-right":
+      return "top-left";
+    case "middle-left":
+      return "middle-right";
+    case "middle-right":
+      return "middle-left";
+    case "bottom-left":
+      return "bottom-right";
+    case "bottom-right":
+      return "bottom-left";
+    default:
+      return position;
+  }
+}
+
+function mirrorPunch(punch: PunchState): PunchState {
+  return {
+    type: punch.type,
+    quantity: punch.quantity,
+    position: mirrorPunchPosition(punch.position),
+  };
+}
+
 type Orientation = "vertical" | "horizontal" | "square";
 
 function orientationOf(width: number, height: number): Orientation {
@@ -62,6 +97,7 @@ export default function Analise() {
   const [faceImages, setFaceImages] = useState({ frente: false, verso: false });
 
   const router = useRouter();
+  const { startLoading, stopLoading } = useGlobalLoading();
   const optionsRef = useRef(DEFAULT_OPTIONS);
   const customIccRef = useRef<CustomIcc | null>(null);
   const frenteRef = useRef<FaceSectionHandle | null>(null);
@@ -162,6 +198,7 @@ export default function Analise() {
     if (!source || !target || target.getImage()) return;
     target.addBlankFromImage(source);
     target.setChip(mirrorChip(frenteRef.current?.getChip() ?? null));
+    target.setPunch(mirrorPunch(frenteRef.current?.getPunch() ?? { type: null, position: null, quantity: null }));
   }, []);
 
   const handleAddRecipientToFrente = useCallback(() => {
@@ -170,6 +207,7 @@ export default function Analise() {
     if (!source || !target || target.getImage()) return;
     target.addBlankFromImage(source);
     target.setChip(mirrorChip(versoRef.current?.getChip() ?? null));
+    target.setPunch(mirrorPunch(versoRef.current?.getPunch() ?? { type: null, position: null, quantity: null }));
   }, []);
 
   const handleDuplicateToVerso = useCallback(() => {
@@ -178,6 +216,7 @@ export default function Analise() {
     if (!source || !target || target.getImage()) return;
     target.addImageFromImage(source);
     target.setChip(mirrorChip(frenteRef.current?.getChip() ?? null));
+    target.setPunch(mirrorPunch(frenteRef.current?.getPunch() ?? { type: null, position: null, quantity: null }));
   }, []);
 
   const handleDuplicateToFrente = useCallback(() => {
@@ -186,6 +225,7 @@ export default function Analise() {
     if (!source || !target || target.getImage()) return;
     target.addImageFromImage(source);
     target.setChip(mirrorChip(versoRef.current?.getChip() ?? null));
+    target.setPunch(mirrorPunch(versoRef.current?.getPunch() ?? { type: null, position: null, quantity: null }));
   }, []);
 
   const handleFrontChipChange = useCallback((position: ChipPosition | null) => {
@@ -196,14 +236,28 @@ export default function Analise() {
     frenteRef.current?.setChip(mirrorChip(position));
   }, []);
 
+  const handleFrontPunchChange = useCallback((punch: PunchState) => {
+    versoRef.current?.setPunch(mirrorPunch(punch));
+  }, []);
+
+  const handleVersoPunchChange = useCallback((punch: PunchState) => {
+    frenteRef.current?.setPunch(mirrorPunch(punch));
+  }, []);
+
   const handleFrontNewImage = useCallback((previousChip: ChipPosition | null) => {
     const otherChip = versoRef.current?.getChip() ?? null;
     frenteRef.current?.setChip(otherChip ? mirrorChip(otherChip) : previousChip);
+    const otherPunch =
+      versoRef.current?.getPunch() ?? { type: null, position: null, quantity: null };
+    frenteRef.current?.setPunch(mirrorPunch(otherPunch));
   }, []);
 
   const handleVersoNewImage = useCallback((previousChip: ChipPosition | null) => {
     const otherChip = frenteRef.current?.getChip() ?? null;
     versoRef.current?.setChip(otherChip ? mirrorChip(otherChip) : previousChip);
+    const otherPunch =
+      frenteRef.current?.getPunch() ?? { type: null, position: null, quantity: null };
+    versoRef.current?.setPunch(mirrorPunch(otherPunch));
   }, []);
 
   const checkFrenteOrientation = useCallback((width: number, height: number): string | null => {
@@ -254,14 +308,16 @@ export default function Analise() {
   const runCombined = useCallback(
     async (action: string, fn: () => void | Promise<void>) => {
       setCombinedBusy(true);
+      startLoading(action === "approval" ? "Preparando layout de aprovação..." : "Gerando exportação...");
       try {
         if (action !== "approval") await persistCombinedData();
         await fn();
       } finally {
         setCombinedBusy(false);
+        stopLoading();
       }
     },
-    [persistCombinedData],
+    [persistCombinedData, startLoading, stopLoading],
   );
 
   const handleExportPng = useCallback(() => {
@@ -385,6 +441,7 @@ export default function Analise() {
             onDuplicateImage={handleDuplicateToVerso}
             onImageStateChange={handleFrenteImageStateChange}
             onChipChange={handleFrontChipChange}
+            onPunchChange={handleFrontPunchChange}
             onNewImage={handleFrontNewImage}
             getOrientationConflict={checkFrenteOrientation}
             showAddRecipient={!faceImages.verso}
@@ -401,6 +458,7 @@ export default function Analise() {
             onDuplicateImage={handleDuplicateToFrente}
             onImageStateChange={handleVersoImageStateChange}
             onChipChange={handleVersoChipChange}
+            onPunchChange={handleVersoPunchChange}
             onNewImage={handleVersoNewImage}
             getOrientationConflict={checkVersoOrientation}
             showAddRecipient={!faceImages.frente}

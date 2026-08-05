@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 import { deleteRemoteJob, getRemoteJob, listRemoteJobs, type RemoteJobSummary } from "@/lib/api/client";
 import { clearJobData, clearJobId, saveJobData, saveJobId } from "@/lib/job/storage";
 
@@ -15,6 +16,7 @@ function formatDate(value: string) {
 
 export default function LayoutsPage() {
   const router = useRouter();
+  const { startLoading, stopLoading } = useGlobalLoading();
   const [items, setItems] = useState<RemoteJobSummary[]>([]);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,18 +26,21 @@ export default function LayoutsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   function handleNewLayout() {
+    startLoading("Iniciando novo layout...");
     clearJobData();
     clearJobId();
     router.push("/");
   }
 
   async function handleOpenLayout(id: string) {
+    startLoading("Carregando layout...");
     setOpeningId(id);
     setError(null);
     const result = await getRemoteJob(id);
     if (!result) {
       setError("Não foi possível abrir este layout. Verifique se a API está ativa.");
       setOpeningId(null);
+      stopLoading();
       return;
     }
     saveJobData(result.job);
@@ -46,6 +51,7 @@ export default function LayoutsPage() {
   async function handleDeleteLayout(id: string) {
     if (!window.confirm("Excluir este layout e todos os dados da análise?")) return;
     setDeletingId(id);
+    startLoading("Excluindo layout...");
     setError(null);
     const deleted = await deleteRemoteJob(id);
     if (deleted) {
@@ -54,6 +60,7 @@ export default function LayoutsPage() {
       setError("Não foi possível excluir este layout. Verifique se a API está ativa.");
     }
     setDeletingId(null);
+    stopLoading();
   }
 
   useEffect(() => {

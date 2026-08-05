@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { GlobalLoadingProvider } from "@/components/GlobalLoadingProvider";
 import { HeaderNav } from "@/components/HeaderNav";
 import "./globals.css";
 
@@ -19,11 +20,12 @@ export default function RootLayout({
         suppressHydrationWarning
         className="flex min-h-dvh flex-col bg-slate-100 text-slate-900 antialiased"
       >
-        <HeaderNav />
+        <GlobalLoadingProvider>
+          <HeaderNav />
 
-        {children}
+          {children}
 
-        <footer className="border-t border-slate-200 bg-white">
+          <footer className="border-t border-slate-200 bg-white">
           <div className="mx-auto flex w-full max-w-7xl flex-col items-center justify-between gap-2 px-4 py-5 text-center text-xs text-slate-400 sm:flex-row sm:px-6 sm:text-left lg:px-8">
             <p>
                Croma Studio · Ferramenta para gráficas e designers. A análise acontece no seu
@@ -33,7 +35,8 @@ export default function RootLayout({
               Cores para impressão devem ser validadas com o perfil ICC indicado pela gráfica.
             </p>
           </div>
-        </footer>
+          </footer>
+        </GlobalLoadingProvider>
       </body>
     </html>
   );

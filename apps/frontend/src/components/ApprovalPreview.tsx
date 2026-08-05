@@ -3,8 +3,13 @@
 import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 
 import {
+  CHIP_DISPLACED_LABEL,
+  CHIP_PHYSICAL,
+  chipDisplacedLabelY,
   computeApprovalGeometry,
   computeApprovalPalette,
+  computeChipOverlay,
+  computePunchOverlays,
   computeTarjaOverlay,
   approvalPaletteMinHeight,
   type ApprovalPalette,
@@ -206,6 +211,51 @@ function PaletteBox({
         )}
       </div>
     </div>
+  );
+}
+
+const CARD_WIDTH_MM = 85.5;
+
+function PunchOverlay({
+  result,
+  fitted,
+  scale,
+}: {
+  result: AnalysisResult;
+  fitted: { x: number; y: number; width: number; height: number };
+  scale: number;
+}) {
+  const punches = computePunchOverlays(
+    result.punchType,
+    result.punchPosition,
+    result.punchQuantity,
+    fitted.x,
+    fitted.y,
+    fitted.width,
+    fitted.height,
+    fitted.width / CARD_WIDTH_MM,
+  );
+  if (punches.length === 0) return null;
+  const round = result.punchType === "round";
+  return (
+    <>
+      {punches.map((punch, index) => (
+        <div
+          key={index}
+          className="pointer-events-none absolute"
+          style={{
+            left: mm(punch.x, scale),
+            top: mm(punch.y, scale),
+            width: mm(punch.w, scale),
+            height: mm(punch.h, scale),
+            backgroundColor: "#ffffff",
+            border: "1px solid #000000",
+            borderRadius: round ? "50%" : mm(punch.h / 2, scale),
+            zIndex: 2,
+          }}
+        />
+      ))}
+    </>
   );
 }
 
@@ -742,35 +792,59 @@ export function ApprovalPreviewPage({
             zIndex: 1,
           }}
         />}
-        {hasFrontImage && result.chipPosition && (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src="/chip.png"
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute"
-            style={{
-              width: mm(7.92, scale),
-              height: mm(5.87, scale),
-              ...(result.chipPosition === "top-left"
-                ? { left: mm(fittedFront.x + 4, scale), top: mm(fittedFront.y + 4, scale) }
-                : result.chipPosition === "top-right"
-                  ? {
-                      left: mm(fittedFront.x + fittedFront.width - 4 - 7.92, scale),
-                      top: mm(fittedFront.y + 4, scale),
-                    }
-                  : result.chipPosition === "bottom-left"
-                    ? {
-                        left: mm(fittedFront.x + 4, scale),
-                        top: mm(fittedFront.y + fittedFront.height - 4 - 5.87, scale),
-                      }
-                    : {
-                        left: mm(fittedFront.x + fittedFront.width - 4 - 7.92, scale),
-                        top: mm(fittedFront.y + fittedFront.height - 4 - 5.87, scale),
-                      }),
-              zIndex: 2,
-            }}
-          />
+        {hasFrontImage && (() => {
+          const punchScale = fittedFront.width / CARD_WIDTH_MM;
+          const chipMarginMm = result.imageHeight > result.imageWidth ? 9 : 13.5;
+          const chip = computeChipOverlay(
+            result.chipPosition,
+            result,
+            fittedFront.x,
+            fittedFront.y,
+            fittedFront.width,
+            fittedFront.height,
+            {
+              punchScale,
+              chipSize: CHIP_PHYSICAL,
+              margin: chipMarginMm * punchScale,
+              gap: 1.5,
+            },
+          );
+          if (!chip) return null;
+          return (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src="/chip.png"
+                alt=""
+                aria-hidden="true"
+                className="pointer-events-none absolute"
+                style={{
+                  left: mm(chip.x, scale),
+                  top: mm(chip.y, scale),
+                  width: mm(chip.w, scale),
+                  height: mm(chip.h, scale),
+                  zIndex: 2,
+                }}
+              />
+              {chip.displaced && (
+                <p
+                  className="absolute text-center font-bold uppercase leading-none text-[#DC2626]"
+                  style={{
+                    left: mm(MARGIN, scale),
+                    top: mm(chipDisplacedLabelY(result, fittedFront), scale),
+                    width: mm(geo.paletteX - MARGIN, scale),
+                    fontSize: mm(2.4, scale),
+                    fontFamily: "Helvetica, Arial, sans-serif",
+                  }}
+                >
+                  {CHIP_DISPLACED_LABEL}
+                </p>
+              )}
+            </>
+          );
+        })()}
+        {hasFrontImage && (
+          <PunchOverlay result={result} fitted={fittedFront} scale={scale} />
         )}
         {hasFrontImage && (() => {
           const tarja = computeTarjaOverlay(
@@ -833,35 +907,60 @@ export function ApprovalPreviewPage({
                 zIndex: 1,
               }}
             />
-            {verso.result.chipPosition && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src="/chip.png"
-                alt=""
-                aria-hidden="true"
-                className="pointer-events-none absolute"
-                style={{
-                  width: mm(7.92, scale),
-                  height: mm(5.87, scale),
-                  ...(verso.result.chipPosition === "top-left"
-                    ? { left: mm(fittedVerso!.x + 4, scale), top: mm(fittedVerso!.y + 4, scale) }
-                    : verso.result.chipPosition === "top-right"
-                      ? {
-                          left: mm(fittedVerso!.x + fittedVerso!.width - 4 - 7.92, scale),
-                          top: mm(fittedVerso!.y + 4, scale),
-                        }
-                      : verso.result.chipPosition === "bottom-left"
-                        ? {
-                            left: mm(fittedVerso!.x + 4, scale),
-                            top: mm(fittedVerso!.y + fittedVerso!.height - 4 - 5.87, scale),
-                          }
-                        : {
-                            left: mm(fittedVerso!.x + fittedVerso!.width - 4 - 7.92, scale),
-                            top: mm(fittedVerso!.y + fittedVerso!.height - 4 - 5.87, scale),
-                          }),
-                  zIndex: 2,
-                }}
-              />
+            {(() => {
+              const punchScale = fittedVerso!.width / CARD_WIDTH_MM;
+              const chipMarginMm =
+                verso.result.imageHeight > verso.result.imageWidth ? 9 : 13.5;
+              const chip = computeChipOverlay(
+                verso.result.chipPosition,
+                verso.result,
+                fittedVerso!.x,
+                fittedVerso!.y,
+                fittedVerso!.width,
+                fittedVerso!.height,
+                {
+                  punchScale,
+                  chipSize: CHIP_PHYSICAL,
+                  margin: chipMarginMm * punchScale,
+                  gap: 1.5,
+                },
+              );
+              if (!chip) return null;
+              return (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src="/chip.png"
+                    alt=""
+                    aria-hidden="true"
+                    className="pointer-events-none absolute"
+                    style={{
+                      left: mm(chip.x, scale),
+                      top: mm(chip.y, scale),
+                      width: mm(chip.w, scale),
+                      height: mm(chip.h, scale),
+                      zIndex: 2,
+                    }}
+                  />
+                  {chip.displaced && (
+                    <p
+                      className="absolute text-center font-bold uppercase leading-none text-[#DC2626]"
+                      style={{
+                        left: mm(MARGIN, scale),
+                        top: mm(chipDisplacedLabelY(verso.result, fittedVerso!), scale),
+                        width: mm(geo.paletteX - MARGIN, scale),
+                        fontSize: mm(2.4, scale),
+                        fontFamily: "Helvetica, Arial, sans-serif",
+                      }}
+                    >
+                      {CHIP_DISPLACED_LABEL}
+                    </p>
+                  )}
+                </>
+              );
+            })()}
+            {fittedVerso && (
+              <PunchOverlay result={verso.result} fitted={fittedVerso} scale={scale} />
             )}
             {(() => {
               const tarja = computeTarjaOverlay(

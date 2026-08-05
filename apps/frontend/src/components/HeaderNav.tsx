@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { clearJobData, clearJobId } from "@/lib/job/storage";
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 
 function BrandMark() {
   return (
@@ -19,9 +20,11 @@ function BrandMark() {
 
 export function HeaderNav() {
   const router = useRouter();
+  const { startLoading } = useGlobalLoading();
   const [open, setOpen] = useState(false);
 
   function handleNewLayout() {
+    startLoading("Iniciando novo layout...");
     clearJobData();
     clearJobId();
     setOpen(false);

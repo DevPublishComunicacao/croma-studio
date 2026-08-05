@@ -10,7 +10,13 @@ import { UploadZone } from "@/components/UploadZone";
 
 import { AnalysisError, analyzeImageData, MAX_COLORS_PER_FACE } from "@/lib/color/analysis";
 import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
+import { rgbToHex } from "@/lib/color/conversions";
 import { imageDataToCmykDisplayDataUrl } from "@/lib/color/display";
+import {
+  CHIP_MARGIN,
+  CHIP_PHYSICAL,
+  computeChipOverlay,
+} from "@/lib/export/approvalLayout";
 import { ImageLoadError, loadImageFile } from "@/lib/image/loader";
 import { decodeStoredNativeCmyk } from "@/lib/color/nativeCmyk";
 import { saveRemoteFace } from "@/lib/api/client";
@@ -26,6 +32,12 @@ import type {
 } from "@/lib/types";
 import type { PickedColor } from "@/components/ImagePreview";
 
+export interface PunchState {
+  type: PunchType | null;
+  position: PunchPosition | null;
+  quantity: PunchQuantity | null;
+}
+
 export interface FaceSectionHandle {
   getImage: () => LoadedImage | null;
   prepareExportData: () => Promise<void>;
@@ -33,6 +45,8 @@ export interface FaceSectionHandle {
   addBlankFromImage: (source: LoadedImage) => void;
   getChip: () => ChipPosition | null;
   setChip: (position: ChipPosition | null) => void;
+  getPunch: () => PunchState;
+  setPunch: (punch: PunchState) => void;
   getExportData: () => {
     result: AnalysisResult;
     dataUrl: string;
@@ -52,6 +66,7 @@ interface FaceSectionProps {
   onDuplicateImage?: () => void;
   onImageStateChange?: (hasImage: boolean) => void;
   onChipChange?: (position: ChipPosition | null) => void;
+  onPunchChange?: (punch: PunchState) => void;
   onNewImage?: (previousChip: ChipPosition | null) => void;
   getOrientationConflict?: (width: number, height: number) => string | null;
   showAddRecipient?: boolean;
@@ -82,6 +97,43 @@ const CHIP_OPTIONS: Array<{ value: ChipPosition; label: string }> = [
   { value: "top-right", label: "Chip superior direito" },
   { value: "bottom-left", label: "Chip inferior esquerdo" },
   { value: "bottom-right", label: "Chip inferior direito" },
+];
+
+export type PunchType = "ovoid" | "round";
+
+export type PunchQuantity = "simple" | "double";
+
+export type PunchPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "middle-left"
+  | "middle-center"
+  | "middle-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+const PUNCH_TYPE_OPTIONS: Array<{ value: PunchType; label: string; hint: string }> = [
+  { value: "ovoid", label: "Ovoide", hint: "18 × 4,5 mm · cantos arredondados" },
+  { value: "round", label: "Redondo", hint: "7,5 mm de diâmetro" },
+];
+
+const PUNCH_QUANTITY_OPTIONS: Array<{ value: PunchQuantity; label: string }> = [
+  { value: "simple", label: "Simples" },
+  { value: "double", label: "Duplo" },
+];
+
+const PUNCH_OPTIONS: Array<{ value: PunchPosition; label: string }> = [
+  { value: "top-left", label: "Esquerdo superior" },
+  { value: "top-center", label: "Central superior" },
+  { value: "top-right", label: "Direito superior" },
+  { value: "middle-left", label: "Esquerdo meio" },
+  { value: "middle-center", label: "Central meio" },
+  { value: "middle-right", label: "Direito meio" },
+  { value: "bottom-left", label: "Esquerdo inferior" },
+  { value: "bottom-center", label: "Central inferior" },
+  { value: "bottom-right", label: "Direito inferior" },
 ];
 
 function cmykKey(color: PickedColor | DominantColor): string {
@@ -181,6 +233,42 @@ function errorMessage(error: unknown): string {
   return "Ocorreu um erro inesperado ao processar a imagem.";
 }
 
+function PunchPositionIcon({
+  position,
+  selected,
+}: {
+  position: PunchPosition;
+  selected: boolean;
+}) {
+  const hole = (cx: number, cy: number) => (
+    <circle cx={cx} cy={cy} r="3.2" fill="currentColor" />
+  );
+
+  return (
+    <svg viewBox="0 0 48 48" fill="none" className="h-16 w-16" aria-hidden="true">
+      <rect
+        x="8"
+        y="6"
+        width="32"
+        height="36"
+        rx="5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        opacity={selected ? 0.9 : 0.55}
+      />
+      {position === "top-left" && hole(17, 16)}
+      {position === "top-center" && hole(24, 16)}
+      {position === "top-right" && hole(31, 16)}
+      {position === "middle-left" && hole(17, 24)}
+      {position === "middle-center" && hole(24, 24)}
+      {position === "middle-right" && hole(31, 24)}
+      {position === "bottom-left" && hole(17, 32)}
+      {position === "bottom-center" && hole(24, 32)}
+      {position === "bottom-right" && hole(31, 32)}
+    </svg>
+  );
+}
+
 export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(function FaceSection(
   {
     side,
@@ -193,6 +281,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     onDuplicateImage,
     onImageStateChange,
     onChipChange,
+    onPunchChange,
     onNewImage,
     getOrientationConflict,
     showAddRecipient,
@@ -214,9 +303,17 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
   const magneticStripeRef = useRef<MagneticStripePosition | null>(null);
   const [chipDialogOpen, setChipDialogOpen] = useState(false);
   const [chipPosition, setChipPosition] = useState<ChipPosition | null>(null);
+  const [chipDisplaceConfirm, setChipDisplaceConfirm] = useState<ChipPosition | null>(null);
   const [orientationWarning, setOrientationWarning] = useState<string | null>(null);
   const chipRef = useRef<ChipPosition | null>(null);
   const lastChipRef = useRef<ChipPosition | null>(null);
+  const [punchDialogOpen, setPunchDialogOpen] = useState(false);
+  const [punchType, setPunchType] = useState<PunchType | null>(null);
+  const [punchPosition, setPunchPosition] = useState<PunchPosition | null>(null);
+  const [punchQuantity, setPunchQuantity] = useState<PunchQuantity | null>(null);
+  const punchTypeRef = useRef<PunchType | null>(null);
+  const punchPositionRef = useRef<PunchPosition | null>(null);
+  const punchQuantityRef = useRef<PunchQuantity | null>(null);
 
   const optionsRef = useRef(options);
   const imageRef = useRef<LoadedImage | null>(null);
@@ -293,10 +390,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         };
         const restoredResult: AnalysisResult = {
           ...face.analysis,
-          colors: (face.colors.length > 0 ? face.colors : face.analysis.colors).slice(
-            0,
-            MAX_COLORS_PER_FACE,
-          ),
+          colors: (face.colors.length > 0 ? face.colors : face.analysis.colors)
+            .slice(0, MAX_COLORS_PER_FACE)
+            .map((color) => ({ ...color, hex: rgbToHex(color.rgb) })),
         };
 
         hydratedFaceRef.current = face.id;
@@ -306,10 +402,16 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         blankRecipientRef.current = restoredImage.fileName.endsWith("-recipiente.png");
         magneticStripeRef.current = restoredResult.magneticStripePosition as MagneticStripePosition | undefined ?? null;
         chipRef.current = restoredResult.chipPosition as ChipPosition | undefined ?? null;
+        punchTypeRef.current = restoredResult.punchType as PunchType | undefined ?? null;
+        punchPositionRef.current = restoredResult.punchPosition as PunchPosition | undefined ?? null;
+        punchQuantityRef.current = restoredResult.punchQuantity as PunchQuantity | undefined ?? null;
         setImage(restoredImage);
         setResult(restoredResult);
         setMagneticStripePosition(magneticStripeRef.current);
         setChipPosition(chipRef.current);
+        setPunchType(punchTypeRef.current);
+        setPunchPosition(punchPositionRef.current);
+        setPunchQuantity(punchQuantityRef.current);
         setStatus("done");
         setProgress("");
         setError(null);
@@ -409,6 +511,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         res.imageHeight = img.height;
         res.magneticStripePosition = magneticStripeRef.current ?? undefined;
         res.chipPosition = chipRef.current ?? undefined;
+        res.punchType = punchTypeRef.current ?? undefined;
+        res.punchPosition = punchPositionRef.current ?? undefined;
+        res.punchQuantity = punchQuantityRef.current ?? undefined;
 
         if (gen !== generationRef.current) return;
         resultRef.current = res;
@@ -461,6 +566,12 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setMagneticStripePosition(null);
         chipRef.current = null;
         setChipPosition(null);
+        punchTypeRef.current = null;
+        setPunchType(null);
+        punchPositionRef.current = null;
+        setPunchPosition(null);
+        punchQuantityRef.current = null;
+        setPunchQuantity(null);
         imageRef.current = loaded;
         setImage(loaded);
         await runAnalysis(loaded, optionsRef.current);
@@ -490,6 +601,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     storedFaceRef.current = false;
     magneticStripeRef.current = null;
     chipRef.current = null;
+    punchTypeRef.current = null;
+    punchPositionRef.current = null;
+    punchQuantityRef.current = null;
     resultRef.current = null;
     pickedRef.current = [];
     mergeRef.current = null;
@@ -501,6 +615,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     setMergeMode(null);
     setMagneticStripePosition(null);
     setChipPosition(null);
+    setPunchType(null);
+    setPunchPosition(null);
+    setPunchQuantity(null);
     setCmykState("idle");
     setStatus("idle");
     setProgress("");
@@ -559,6 +676,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         imageHeight: blank.height,
         magneticStripePosition: magneticStripeRef.current ?? undefined,
         chipPosition: chipRef.current ?? undefined,
+        punchType: punchTypeRef.current ?? undefined,
+        punchPosition: punchPositionRef.current ?? undefined,
+        punchQuantity: punchQuantityRef.current ?? undefined,
       };
       resultRef.current = blankResult;
       setImage(blank);
@@ -596,6 +716,12 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       setMagneticStripePosition(null);
       chipRef.current = null;
       setChipPosition(null);
+      punchTypeRef.current = null;
+      setPunchType(null);
+      punchPositionRef.current = null;
+      setPunchPosition(null);
+      punchQuantityRef.current = null;
+      setPunchQuantity(null);
       imageRef.current = copy;
       setImage(copy);
       void runAnalysis(copy, optionsRef.current);
@@ -801,6 +927,70 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     }
   }, []);
 
+  const chipWouldDisplace = useCallback(
+    (
+      position: ChipPosition,
+      punch: {
+        type: PunchType | null;
+        position: PunchPosition | null;
+        quantity: PunchQuantity | null;
+      },
+      img: { width: number; height: number } | null,
+    ): boolean => {
+      if (!img || !punch.type || !punch.position) return false;
+      const imgW = 85.5;
+      const imgH = imgW * (img.height / Math.max(1, img.width));
+      const overlay = computeChipOverlay(
+        position,
+        {
+          punchType: punch.type,
+          punchPosition: punch.position,
+          punchQuantity: punch.quantity ?? "simple",
+        },
+        0,
+        0,
+        imgW,
+        imgH,
+        { chipSize: CHIP_PHYSICAL, margin: CHIP_MARGIN },
+      );
+      return overlay?.displaced ?? false;
+    },
+    [],
+  );
+
+  const applyChipSelection = useCallback((position: ChipPosition) => {
+    chipRef.current = position;
+    setChipPosition(position);
+    onChipChange?.(position);
+    if (resultRef.current) {
+      const updated = {
+        ...resultRef.current,
+        chipPosition: position,
+      };
+      resultRef.current = updated;
+      setResult(updated);
+    }
+  }, [onChipChange]);
+
+  const applyPunch = useCallback((punch: PunchState) => {
+    punchTypeRef.current = punch.type;
+    setPunchType(punch.type);
+    punchPositionRef.current = punch.position;
+    setPunchPosition(punch.position);
+    punchQuantityRef.current = punch.quantity;
+    setPunchQuantity(punch.quantity);
+    if (resultRef.current) {
+      const updated = {
+        ...resultRef.current,
+        punchType: punch.type ?? undefined,
+        punchPosition: punch.position ?? undefined,
+        punchQuantity: punch.quantity ?? undefined,
+      };
+      resultRef.current = updated;
+      setResult(updated);
+    }
+  }, []);
+
   const prepareExportData = useCallback(async () => {
     const current = resultRef.current;
     if (current) await applyPrintCmyk(current, optionsRef.current);
@@ -824,6 +1014,12 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       addBlankFromImage,
       getChip: () => chipRef.current,
       setChip: applyChip,
+      getPunch: () => ({
+        type: punchTypeRef.current,
+        position: punchPositionRef.current,
+        quantity: punchQuantityRef.current,
+      }),
+      setPunch: applyPunch,
       getExportData: () => {
         const currentResult = resultRef.current;
         const currentImage = imageRef.current;
@@ -845,7 +1041,7 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         };
       },
     }),
-    [addBlankFromImage, addImageFromImage, applyChip, prepareExportData, side],
+    [addBlankFromImage, addImageFromImage, applyChip, applyPunch, prepareExportData, side],
   );
 
   const processing = status === "processing";
@@ -872,6 +1068,27 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
       setResult(updated);
     }
     setChipDialogOpen(false);
+  };
+
+  const handleRemovePunch = () => {
+    punchTypeRef.current = null;
+    setPunchType(null);
+    punchPositionRef.current = null;
+    setPunchPosition(null);
+    punchQuantityRef.current = null;
+    setPunchQuantity(null);
+    onPunchChange?.({ type: null, position: null, quantity: null });
+    if (resultRef.current) {
+      const updated = {
+        ...resultRef.current,
+        punchType: undefined,
+        punchPosition: undefined,
+        punchQuantity: undefined,
+      };
+      resultRef.current = updated;
+      setResult(updated);
+    }
+    setPunchDialogOpen(false);
   };
 
   const displayColors: DominantColor[] = result
@@ -930,12 +1147,77 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     }
   };
 
+  const punchConflictsWithStripe = (
+    position: PunchPosition,
+    stripe: MagneticStripePosition | null,
+  ): boolean => {
+    if (!stripe) return false;
+    const punchOnTop =
+      position === "top-left" || position === "top-center" || position === "top-right";
+    const punchOnBottom =
+      position === "bottom-left" || position === "bottom-center" || position === "bottom-right";
+    const punchOnLeft =
+      position === "top-left" || position === "middle-left" || position === "bottom-left";
+    const punchOnRight =
+      position === "top-right" || position === "middle-right" || position === "bottom-right";
+    switch (stripe) {
+      case "vertical-left":
+        return punchOnLeft;
+      case "vertical-right":
+        return punchOnRight;
+      case "horizontal-top":
+        return punchOnTop;
+      case "horizontal-bottom":
+        return punchOnBottom;
+      default:
+        return false;
+    }
+  };
+
+  const isPunchPositionAllowed = (position: PunchPosition) => {
+    if ((punchQuantity ?? "simple") === "double") {
+      if (position !== "top-center" && position !== "bottom-center") return false;
+    }
+    return !punchConflictsWithStripe(position, magneticStripePosition);
+  };
+
   return (
     <div className="rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="flex items-center justify-between rounded-t-2xl border-b border-slate-200 bg-slate-800 px-5 py-3">
         <h2 className="text-sm font-bold uppercase tracking-widest text-white">{title}</h2>
         {image ? (
           <div className="flex min-w-0 items-center gap-3">
+            <span
+              className="h-7 w-16 shrink-0 rounded-md border border-white/15 bg-white/5"
+            >
+              <button
+                type="button"
+                onClick={() => setPunchDialogOpen(true)}
+                aria-label="Adicionar furação"
+                title={
+                  punchType && punchPosition
+                    ? "Alterar a furação"
+                    : "Adicionar furação"
+                }
+                className={`flex h-full w-full items-center justify-center rounded-md transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-200/90 ${
+                  punchType && punchPosition
+                    ? "bg-sky-400/30 text-sky-200 hover:bg-sky-400/45"
+                    : "text-slate-300 hover:bg-white/10 hover:text-sky-200"
+                }`}
+              >
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  className="h-4 w-4"
+                  aria-hidden="true"
+                >
+                  <rect x="3" y="5" width="18" height="14" rx="2" />
+                  <circle cx="12" cy="12" r="2.4" fill="currentColor" stroke="none" />
+                </svg>
+              </button>
+            </span>
             <span
               className="h-7 w-16 shrink-0 rounded-md border border-white/15 bg-white/5"
             >
@@ -1057,6 +1339,9 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
                       image={image}
                       magneticStripePosition={magneticStripePosition}
                       chipPosition={chipPosition}
+                    punchType={punchType}
+                    punchPosition={punchPosition}
+                    punchQuantity={punchQuantity}
                     pickerMode={pickerMode}
                     savedColors={result?.colors}
                     onTogglePicker={handleTogglePicker}
@@ -1165,7 +1450,13 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
                 const chipConflict = chipPosition
                   ? chipConflictsWithStripe(chipPosition, option.value)
                   : false;
-                const allowed = !orientationBlocked && !chipConflict;
+                const punchConflict =
+                  punchPosition && punchType
+                    ? punchConflictsWithStripe(punchPosition, option.value)
+                    : false;
+                const doublePunchBlocked = (punchQuantity ?? "simple") === "double";
+                const allowed =
+                  !orientationBlocked && !chipConflict && !punchConflict && !doublePunchBlocked;
                 return (
                   <button
                     key={option.value}
@@ -1179,10 +1470,29 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
                         setChipPosition(null);
                         onChipChange?.(null);
                       }
+                      if (punchPosition && punchConflictsWithStripe(punchPosition, option.value)) {
+                        punchTypeRef.current = null;
+                        setPunchType(null);
+                        punchPositionRef.current = null;
+                        setPunchPosition(null);
+                        punchQuantityRef.current = null;
+                        setPunchQuantity(null);
+                        onPunchChange?.({ type: null, position: null, quantity: null });
+                      }
                       if (resultRef.current) {
                         const updated = {
                           ...resultRef.current,
                           magneticStripePosition: option.value,
+                          ...(chipRef.current
+                            ? {}
+                            : { chipPosition: undefined }),
+                          ...(punchPositionRef.current
+                            ? {}
+                            : {
+                                punchType: undefined,
+                                punchPosition: undefined,
+                                punchQuantity: undefined,
+                              }),
                         };
                         resultRef.current = updated;
                         setResult(updated);
@@ -1192,9 +1502,13 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
                     title={
                       orientationBlocked
                         ? "Orientação incompatível com esta imagem"
-                        : chipConflict
-                          ? "Lado ocupado pelo chip"
-                          : undefined
+                        : doublePunchBlocked
+                          ? "Remova a furação dupla para adicionar tarja magnética"
+                          : chipConflict
+                            ? "Lado ocupado pelo chip"
+                            : punchConflict
+                              ? "Sobre a área da furação"
+                              : undefined
                     }
                     className={`group flex min-h-36 flex-col items-center justify-between rounded-2xl border p-4 text-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 disabled:cursor-not-allowed disabled:opacity-40 ${
                       magneticStripePosition === option.value
@@ -1275,26 +1589,31 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
             <div className="grid gap-3 p-6 sm:grid-cols-2">
               {CHIP_OPTIONS.map((option) => {
                 const conflict = chipConflictsWithStripe(option.value, magneticStripePosition);
+                const punchConflict = chipWouldDisplace(
+                  option.value,
+                  { type: punchType, position: punchPosition, quantity: punchQuantity },
+                  image,
+                );
                 return (
                   <button
                     key={option.value}
                     type="button"
                     disabled={conflict}
                     onClick={() => {
-                      chipRef.current = option.value;
-                      setChipPosition(option.value);
-                      onChipChange?.(option.value);
-                      if (resultRef.current) {
-                        const updated = {
-                          ...resultRef.current,
-                          chipPosition: option.value,
-                        };
-                        resultRef.current = updated;
-                        setResult(updated);
+                      if (punchConflict) {
+                        setChipDisplaceConfirm(option.value);
+                        return;
                       }
+                      applyChipSelection(option.value);
                       setChipDialogOpen(false);
                     }}
-                    title={conflict ? "Lado ocupado pela tarja magnética" : undefined}
+                    title={
+                      conflict
+                        ? "Lado ocupado pela tarja magnética"
+                        : punchConflict
+                          ? "O chip será deslocado verticalmente para não sobrepor a furação"
+                          : undefined
+                    }
                     className={`group flex min-h-36 flex-col items-center justify-between rounded-2xl border p-4 text-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300 disabled:cursor-not-allowed disabled:opacity-40 ${
                       chipPosition === option.value
                         ? "border-emerald-400 bg-emerald-50 text-emerald-800 shadow-[0_0_0_1px_rgba(16,185,129,0.15)]"
@@ -1317,7 +1636,257 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
           </div>
         </div>
       )}
+      {chipDisplaceConfirm && (
+        <div
+          className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setChipDisplaceConfirm(null);
+          }}
+        >
+          <div
+            className="w-full max-w-md overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white text-slate-900 shadow-[0_24px_80px_rgba(15,23,42,0.25)]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`${title.replace(/\s+/g, "-").toLowerCase()}-chip-displace-title`}
+          >
+            <div className="relative overflow-hidden border-b border-slate-100 px-6 py-5">
+              <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-emerald-200/45 blur-3xl" />
+              <div className="relative">
+                <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-emerald-600">
+                  Acabamento de chip · {title}
+                </p>
+                <h3
+                  id={`${title.replace(/\s+/g, "-").toLowerCase()}-chip-displace-title`}
+                  className="mt-1 text-xl font-bold tracking-tight text-slate-900"
+                >
+                  Chip sobre a furação
+                </h3>
+                <p className="mt-1.5 text-sm leading-relaxed text-slate-600">
+                  A posição escolhida para o chip coincide com a furação deste layout. O chip será
+                  deslocado verticalmente para não sobrepor o furo.
+                </p>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 p-6">
+              <button
+                type="button"
+                onClick={() => setChipDisplaceConfirm(null)}
+                className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-semibold text-slate-600 transition-colors hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const position = chipDisplaceConfirm;
+                  applyChipSelection(position);
+                  setChipDisplaceConfirm(null);
+                  setChipDialogOpen(false);
+                }}
+                className="rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-sm transition-colors hover:bg-emerald-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300"
+              >
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {punchDialogOpen && (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setPunchDialogOpen(false);
+          }}
+        >
+          <div
+            className="w-full max-w-3xl overflow-hidden rounded-[1.75rem] border border-slate-200 bg-white text-slate-900 shadow-[0_24px_80px_rgba(15,23,42,0.25)]"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={`${title.replace(/\s+/g, "-").toLowerCase()}-punch-title`}
+          >
+            <div className="relative overflow-hidden border-b border-slate-100 px-6 py-5">
+              <div className="pointer-events-none absolute -right-12 -top-16 h-44 w-44 rounded-full bg-sky-200/45 blur-3xl" />
+              <div className="relative flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-sky-600">
+                    Acabamento de furação · {title}
+                  </p>
+                  <h3
+                    id={`${title.replace(/\s+/g, "-").toLowerCase()}-punch-title`}
+                    className="mt-1 text-xl font-bold tracking-tight text-slate-900"
+                  >
+                    Adicionar furação
+                  </h3>
+                  <p className="mt-1.5 max-w-md text-xs leading-relaxed text-slate-500">
+                    Escolha o tipo e a posição do furo. Todos os furos são adicionados com 4mm de
+                    cada borda especificada.
+                  </p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleRemovePunch}
+                    disabled={!punchType || !punchPosition}
+                    className="rounded-xl border border-rose-200 px-3 py-2 text-xs font-semibold text-rose-600 transition-colors hover:border-rose-300 hover:bg-rose-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-rose-300 disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Remover furação
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPunchDialogOpen(false)}
+                    aria-label="Fechar seleção de furação"
+                    className="rounded-xl border border-slate-200 p-2 text-slate-400 transition-colors hover:border-slate-300 hover:bg-slate-50 hover:text-slate-800 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
+                  >
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5" aria-hidden="true">
+                      <path strokeLinecap="round" d="M6 6l12 12M18 6L6 12" />
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
 
+            <div className="p-6">
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  TIPO
+                </span>
+                <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                  {PUNCH_TYPE_OPTIONS.map((option) => {
+                    const active = (punchType ?? "ovoid") === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setPunchType(option.value)}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 ${
+                          active
+                            ? "bg-white text-sky-700 shadow-sm"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        <span
+                          className={`block h-2.5 w-2.5 ${
+                            option.value === "round" ? "rounded-full" : "rounded-sm"
+                          } border border-current bg-white`}
+                          aria-hidden="true"
+                        />
+                        {option.label}
+                        <span className="hidden font-normal text-slate-400 sm:inline">
+                          {option.hint}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="mb-4 flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-bold uppercase tracking-[0.18em] text-slate-400">
+                  QUANTIDADE
+                </span>
+                <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
+                  {PUNCH_QUANTITY_OPTIONS.map((option) => {
+                    const active = (punchQuantity ?? "simple") === option.value;
+                    const doubleBlockedByStripe =
+                      option.value === "double" && Boolean(magneticStripePosition);
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        disabled={doubleBlockedByStripe}
+                        onClick={() => {
+                          setPunchQuantity(option.value);
+                          if (
+                            option.value === "double" &&
+                            punchPosition &&
+                            punchPosition !== "top-center" &&
+                            punchPosition !== "bottom-center"
+                          ) {
+                            punchPositionRef.current = null;
+                            setPunchPosition(null);
+                          }
+                        }}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-bold transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:cursor-not-allowed disabled:opacity-40 ${
+                          active
+                            ? "bg-white text-sky-700 shadow-sm"
+                            : "text-slate-500 hover:text-slate-700"
+                        }`}
+                      >
+                        {option.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                {PUNCH_OPTIONS.map((option) => {
+                  const blocked = !isPunchPositionAllowed(option.value);
+                  const stripeBlocked = punchConflictsWithStripe(
+                    option.value,
+                    magneticStripePosition,
+                  );
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={blocked}
+                      onClick={() => {
+                        punchTypeRef.current = punchType ?? "ovoid";
+                        setPunchType(punchTypeRef.current);
+                        punchPositionRef.current = option.value;
+                        setPunchPosition(option.value);
+                        punchQuantityRef.current = punchQuantity ?? "simple";
+                        setPunchQuantity(punchQuantityRef.current);
+                        onPunchChange?.({
+                          type: punchTypeRef.current,
+                          position: option.value,
+                          quantity: punchQuantityRef.current,
+                        });
+                        if (resultRef.current) {
+                          const updated = {
+                            ...resultRef.current,
+                            punchType: punchTypeRef.current,
+                            punchPosition: option.value,
+                            punchQuantity: punchQuantityRef.current,
+                          };
+                          resultRef.current = updated;
+                          setResult(updated);
+                        }
+                        setPunchDialogOpen(false);
+                      }}
+                      title={
+                        blocked
+                          ? stripeBlocked
+                            ? "Sobre a área da tarja magnética"
+                            : "Disponível apenas para furação simples"
+                          : undefined
+                      }
+                      className={`group flex min-h-28 flex-col items-center justify-between rounded-2xl border p-3 text-center transition-all focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-300 disabled:cursor-not-allowed disabled:opacity-40 ${
+                        punchType && punchPosition === option.value
+                          ? "border-sky-400 bg-sky-50 text-sky-800 shadow-[0_0_0_1px_rgba(14,165,233,0.15)]"
+                          : "border-slate-200 bg-slate-50 text-slate-600 hover:border-sky-300 hover:bg-sky-50 hover:text-sky-800"
+                      }`}
+                    >
+                      <span className="text-sky-600 transition-transform group-hover:scale-105">
+                        <PunchPositionIcon
+                          position={option.value}
+                          selected={punchType != null && punchPosition === option.value}
+                        />
+                      </span>
+                      <span className="text-[11px] font-bold uppercase tracking-[0.06em]">
+                        {option.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {orientationWarning && (
         <div
           className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/35 p-4 backdrop-blur-sm"

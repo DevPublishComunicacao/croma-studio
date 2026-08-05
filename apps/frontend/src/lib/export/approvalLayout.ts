@@ -57,6 +57,183 @@ export interface TarjaOverlay {
   h: number;
 }
 
+export type PunchType = "ovoid" | "round";
+
+export type PunchPosition =
+  | "top-left"
+  | "top-center"
+  | "top-right"
+  | "middle-left"
+  | "middle-center"
+  | "middle-right"
+  | "bottom-left"
+  | "bottom-center"
+  | "bottom-right";
+
+export interface PunchOverlay {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const PUNCH_MARGIN = 9;
+
+export const PUNCH_PHYSICAL = {
+  ovoid: { w: 18, h: 4.5 },
+  round: { w: 7.5, h: 7.5 },
+} as const;
+
+export function computePunchOverlay(
+  type: string | undefined,
+  position: string | undefined,
+  imgX: number,
+  imgY: number,
+  imgW: number,
+  imgH: number,
+  scale = 1,
+): PunchOverlay | null {
+  if (!type || !position) return null;
+  const physical = type === "round" ? PUNCH_PHYSICAL.round : PUNCH_PHYSICAL.ovoid;
+  const w = physical.w * scale;
+  const h = physical.h * scale;
+  const margin = PUNCH_MARGIN * scale;
+
+  let x = imgX + margin;
+  let y = imgY + margin;
+
+  if (position.endsWith("-center")) {
+    x = imgX + (imgW - w) / 2;
+  } else if (position.endsWith("-right")) {
+    x = imgX + imgW - w - margin;
+  }
+
+  if (position.startsWith("middle")) {
+    y = imgY + (imgH - h) / 2;
+  } else if (position.startsWith("bottom")) {
+    y = imgY + imgH - h - margin;
+  }
+
+  return { x, y, w, h };
+}
+
+export function computePunchOverlays(
+  type: string | undefined,
+  position: string | undefined,
+  quantity: string | undefined,
+  imgX: number,
+  imgY: number,
+  imgW: number,
+  imgH: number,
+  scale = 1,
+): PunchOverlay[] {
+  if (!type || !position) return [];
+  if (quantity === "double" && (position === "top-center" || position === "bottom-center")) {
+    const physical = type === "round" ? PUNCH_PHYSICAL.round : PUNCH_PHYSICAL.ovoid;
+    const w = physical.w * scale;
+    const h = physical.h * scale;
+    const margin = PUNCH_MARGIN * scale;
+    const y = position === "top-center" ? imgY + margin : imgY + imgH - h - margin;
+    const leftX = imgX + margin;
+    const rightX = imgX + imgW - w - margin;
+    return [
+      { x: leftX, y, w, h },
+      { x: rightX, y, w, h },
+    ];
+  }
+  const single = computePunchOverlay(type, position, imgX, imgY, imgW, imgH, scale);
+  return single ? [single] : [];
+}
+
+export const CHIP_PHYSICAL = { w: 7.92, h: 5.87 };
+export const CHIP_MARGIN = 9;
+export const CHIP_PUNCH_GAP = 4;
+
+export const CHIP_DISPLACED_LABEL = "CHIP DESLOCADO DEVIDO A FURAÇÃO";
+
+export interface ChipOverlay {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  displaced: boolean;
+}
+
+function rectsIntersect(
+  a: { x: number; y: number; w: number; h: number },
+  b: { x: number; y: number; w: number; h: number },
+): boolean {
+  return (
+    a.x < b.x + b.w &&
+    a.x + a.w > b.x &&
+    a.y < b.y + b.h &&
+    a.y + a.h > b.y
+  );
+}
+
+interface ChipOverlayOptions {
+  punchScale?: number;
+  chipSize?: { w: number; h: number };
+  margin?: number;
+  gap?: number;
+}
+
+export function computeChipOverlay(
+  position: string | undefined,
+  result: Pick<AnalysisResult, "punchType" | "punchPosition" | "punchQuantity">,
+  imgX: number,
+  imgY: number,
+  imgW: number,
+  imgH: number,
+  options: ChipOverlayOptions = {},
+): ChipOverlay | null {
+  if (!position) return null;
+  const {
+    punchScale = 1,
+    chipSize = CHIP_PHYSICAL,
+    margin = CHIP_MARGIN,
+    gap = CHIP_PUNCH_GAP,
+  } = options;
+  const w = chipSize.w;
+  const h = chipSize.h;
+  let x = imgX + margin;
+  let y = imgY + margin;
+  if (position === "top-right") x = imgX + imgW - w - margin;
+  else if (position === "bottom-left") y = imgY + imgH - h - margin;
+  else if (position === "bottom-right") {
+    x = imgX + imgW - w - margin;
+    y = imgY + imgH - h - margin;
+  }
+
+  const chip = { x, y, w, h };
+  const punches = computePunchOverlays(
+    result.punchType,
+    result.punchPosition,
+    result.punchQuantity,
+    imgX,
+    imgY,
+    imgW,
+    imgH,
+    punchScale,
+  );
+  let displaced = false;
+  let guard = 0;
+  const centerY = imgY + imgH / 2;
+  while (guard++ < 20) {
+    const conflict = punches.find((p) => rectsIntersect(chip, p));
+    if (!conflict) break;
+    displaced = true;
+    const nextY =
+      chip.y + chip.h / 2 < centerY
+        ? conflict.y + conflict.h + gap
+        : conflict.y - chip.h - gap;
+    const clampedY = Math.max(imgY, Math.min(imgY + imgH - chip.h, nextY));
+    if (clampedY === chip.y) break;
+    chip.y = clampedY;
+  }
+  return { ...chip, displaced };
+}
+
 export function computeTarjaOverlay(
   position: string | undefined,
   imgX: number,
@@ -88,6 +265,23 @@ export function computeTarjaOverlay(
   const y = position === "horizontal-top" ? imgY + 4 : imgY + imgH - h - 4;
   const x = imgX + (imgW - w) / 2;
   return { src, x, y, w, h };
+}
+
+export function chipDisplacedLabelY(
+  result: Pick<AnalysisResult, "magneticStripePosition">,
+  fitted: { x: number; y: number; width: number; height: number },
+  gap = 2,
+): number {
+  const imageBottom = fitted.y + fitted.height;
+  const tarja = computeTarjaOverlay(
+    result.magneticStripePosition,
+    fitted.x,
+    fitted.y,
+    fitted.width,
+    fitted.height,
+  );
+  if (!tarja) return imageBottom + gap;
+  return Math.max(imageBottom, tarja.y + tarja.h) + gap;
 }
 
 export interface ApprovalGeometryParams {

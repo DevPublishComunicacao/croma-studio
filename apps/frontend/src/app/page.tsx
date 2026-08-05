@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 
 import { createRemoteJob, updateRemoteJob } from "@/lib/api/client";
 import { EMPTY_JOB, loadJobData, loadJobId, saveJobData, saveJobId } from "@/lib/job/storage";
@@ -48,6 +49,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 
 export default function Home() {
   const router = useRouter();
+  const { startLoading } = useGlobalLoading();
   const [job, setJob] = useState<JobData>(EMPTY_JOB);
 
   useEffect(() => {
@@ -61,6 +63,7 @@ export default function Home() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    startLoading("Salvando dados do pedido...");
     saveJobData(job);
     const existingJobId = loadJobId();
     let remoteJobId: string | null;

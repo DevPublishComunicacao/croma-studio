@@ -63,6 +63,9 @@ export interface AnalysisResult {
   imageHeight: number;
   magneticStripePosition?: string;
   chipPosition?: string;
+  punchType?: string;
+  punchPosition?: string;
+  punchQuantity?: string;
 }
 
 export interface LoadedImage {
