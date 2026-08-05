@@ -1,4 +1,4 @@
-import { decodeNativeCmyk, isCmykJpeg, nativeCmykToSrgb } from "@/lib/color/nativeCmyk";
+import { decodeNativeCmyk, isCmykJpeg } from "@/lib/color/nativeCmyk";
 import type { LoadedImage } from "@/lib/types";
 
 const MAX_DIMENSION = 1600;
@@ -151,12 +151,6 @@ export async function loadImageFile(
     }
   }
 
-  let analysisImageData = imageData;
-  if (hasNativeCmyk && nativeCmyk) {
-    onProgress?.("Convertendo CMYK nativo para análise…");
-    analysisImageData = nativeCmykToSrgb(nativeCmyk, width, height);
-  }
-
   if (source instanceof ImageBitmap) {
     source.close();
   }
@@ -166,7 +160,7 @@ export async function loadImageFile(
     format,
     width,
     height,
-    imageData: analysisImageData,
+    imageData,
     previewUrl,
     nativeCmyk,
     hasNativeCmyk,

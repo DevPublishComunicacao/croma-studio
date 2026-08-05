@@ -16,7 +16,8 @@ import type {
   Rgb,
 } from "@/lib/types";
 
-const CLUSTER_COUNT = 10;
+export const MAX_COLORS_PER_FACE = 12;
+const CLUSTER_COUNT = MAX_COLORS_PER_FACE;
 const MERGE_DELTA_E_2000 = 8;
 const MIN_PREDOMINANCE_PERCENT = 10;
 const MIN_DISTINCT_CHROMA = 40;
@@ -162,6 +163,8 @@ function exactRgbForCluster(
   let best = Infinity;
   let bestRgb: Rgb = { r: 0, g: 0, b: 0 };
   let bestCmyk: Cmyk | null = null;
+  let bestX = 0.5;
+  let bestY = 0.5;
   let xSum = 0;
   let ySum = 0;
 
@@ -183,6 +186,8 @@ function exactRgbForCluster(
         g: rgbs[idx * 3 + 1],
         b: rgbs[idx * 3 + 2],
       };
+      bestX = xs[idx];
+      bestY = ys[idx];
     }
     const rgbKey = `${rgbs[idx * 3]},${rgbs[idx * 3 + 1]},${rgbs[idx * 3 + 2]}`;
     rgbCounts.set(rgbKey, (rgbCounts.get(rgbKey) ?? 0) + 1);
@@ -231,8 +236,8 @@ function exactRgbForCluster(
     rgb: bestRgb,
     cmyk: bestCmyk,
     modePurity: memberCount > 0 ? modeCount / memberCount : 0,
-    x: memberCount > 0 ? xSum / memberCount : 0.5,
-    y: memberCount > 0 ? ySum / memberCount : 0.5,
+    x: memberCount > 0 ? bestX : xSum / memberCount || 0.5,
+    y: memberCount > 0 ? bestY : ySum / memberCount || 0.5,
   };
 }
 
@@ -379,8 +384,12 @@ export function analyzeImageData(
     (c) => c.percentage >= MIN_PREDOMINANCE_PERCENT || c.chroma >= MIN_DISTINCT_CHROMA,
   );
 
-  const colors: DominantColor[] = (highlighted.length > 0 ? highlighted : pool.slice(0, 3)).map(
-    (c, index) => ({
+  const colors: DominantColor[] = (highlighted.length > 0
+    ? highlighted
+    : pool.slice(0, MAX_COLORS_PER_FACE)
+  )
+    .slice(0, MAX_COLORS_PER_FACE)
+    .map((c, index) => ({
       rank: index + 1,
       hex: c.hex,
       rgb: c.rgb,
@@ -392,8 +401,7 @@ export function analyzeImageData(
       name: c.name,
       x: c.x,
       y: c.y,
-    }),
-  );
+    }));
 
   const profile = getIccProfile(options.iccProfileId);
 

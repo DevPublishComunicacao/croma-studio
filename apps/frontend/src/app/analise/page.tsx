@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { ExportBar } from "@/components/ExportBar";
 import { CmykNotice } from "@/components/CmykNotice";
@@ -24,6 +24,9 @@ const DEFAULT_OPTIONS: AnalysisOptions = {
   ignoreTransparentBackground: true,
   iccProfileId: "fogra39",
 };
+
+const subscribeToJobId = () => () => {};
+const getServerJobId = () => null;
 
 function mirrorChip(position: ChipPosition | null): ChipPosition | null {
   if (!position) return null;
@@ -64,7 +67,7 @@ export default function Analise() {
   const frenteRef = useRef<FaceSectionHandle | null>(null);
   const versoRef = useRef<FaceSectionHandle | null>(null);
   const jobRef = useRef<JobData | null>(loadJobData());
-  const [jobId] = useState<string | null>(() => loadJobId());
+  const jobId = useSyncExternalStore(subscribeToJobId, loadJobId, getServerJobId);
   const [savedFaces, setSavedFaces] = useState<RemoteFace[]>([]);
 
   useEffect(() => {
@@ -312,6 +315,11 @@ export default function Analise() {
   }, [getCombinedData, combinedFileName]);
 
   const handlePreviewApproval = useCallback(async () => {
+    await Promise.all(
+      [frenteRef.current, versoRef.current]
+        .filter((face): face is FaceSectionHandle => face != null)
+        .map((face) => face.prepareExportData()),
+    );
     await persistCombinedData();
     const parts = getCombinedData();
     if (parts.length === 0) return;

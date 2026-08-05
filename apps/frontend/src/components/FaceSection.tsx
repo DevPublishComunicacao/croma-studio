@@ -8,9 +8,9 @@ import { PaletteStrip } from "@/components/PaletteStrip";
 import { ProcessingOverlay } from "@/components/ProcessingOverlay";
 import { UploadZone } from "@/components/UploadZone";
 
-import { AnalysisError, analyzeImageData } from "@/lib/color/analysis";
+import { AnalysisError, analyzeImageData, MAX_COLORS_PER_FACE } from "@/lib/color/analysis";
 import { rgbToCmykApprox } from "@/lib/color/cmykApprox";
-import { imageDataToPngDataUrl } from "@/lib/export/download";
+import { imageDataToCmykDisplayDataUrl } from "@/lib/color/display";
 import { ImageLoadError, loadImageFile } from "@/lib/image/loader";
 import { decodeStoredNativeCmyk } from "@/lib/color/nativeCmyk";
 import { saveRemoteFace } from "@/lib/api/client";
@@ -28,6 +28,7 @@ import type { PickedColor } from "@/components/ImagePreview";
 
 export interface FaceSectionHandle {
   getImage: () => LoadedImage | null;
+  prepareExportData: () => Promise<void>;
   addImageFromImage: (source: LoadedImage) => void;
   addBlankFromImage: (source: LoadedImage) => void;
   getChip: () => ChipPosition | null;
@@ -82,6 +83,13 @@ const CHIP_OPTIONS: Array<{ value: ChipPosition; label: string }> = [
   { value: "bottom-left", label: "Chip inferior esquerdo" },
   { value: "bottom-right", label: "Chip inferior direito" },
 ];
+
+function cmykKey(color: PickedColor | DominantColor): string {
+  const cmyk = "cmyk" in color
+    ? color.cmyk ?? rgbToCmykApprox(color.rgb)
+    : color.cmykPrint ?? color.cmykApprox;
+  return `${cmyk.c}-${cmyk.m}-${cmyk.y}-${cmyk.k}`;
+}
 
 function MagneticStripeIcon({
   position,
@@ -285,7 +293,10 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         };
         const restoredResult: AnalysisResult = {
           ...face.analysis,
-          colors: face.colors.length > 0 ? face.colors : face.analysis.colors,
+          colors: (face.colors.length > 0 ? face.colors : face.analysis.colors).slice(
+            0,
+            MAX_COLORS_PER_FACE,
+          ),
         };
 
         hydratedFaceRef.current = face.id;
@@ -718,8 +729,21 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setMergeMode(pickerMode);
       }
 
-      const existing = pickedRef.current.some((c) => c.hex === picked.hex);
+      const pickedKey = cmykKey(picked);
+      const existing =
+        pickedRef.current.some((c) => cmykKey(c) === pickedKey) ||
+        (pickerMode === "append" &&
+          resultRef.current?.colors.some((c) => cmykKey(c) === pickedKey));
       if (existing) return;
+
+      const baseColorCount =
+        pickerMode === "append" ? (resultRef.current?.colors.length ?? 0) : 0;
+      if (baseColorCount + pickedRef.current.length >= MAX_COLORS_PER_FACE) {
+        setError(
+          `Cada face pode ter no máximo ${MAX_COLORS_PER_FACE} cores. Remova uma cor para adquirir outra.`,
+        );
+        return;
+      }
 
       const color: DominantColor = {
         rank: pickedRef.current.length + 1,
@@ -745,9 +769,18 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
         setCmykState("loading");
         void convertColors([color], optionsRef.current).then((converted) => {
           if (gen !== generationRef.current) return;
-          const updated = pickedRef.current.map((c) =>
-            c.hex === color.hex ? converted[0] : c,
-          );
+          const convertedColor = converted[0];
+          const duplicate =
+            pickedRef.current.some(
+              (c) => c !== color && cmykKey(c) === cmykKey(convertedColor),
+            ) ||
+            (mergeRef.current === "append" &&
+              resultRef.current?.colors.some(
+                (c) => cmykKey(c) === cmykKey(convertedColor),
+              ));
+          const updated = duplicate
+            ? pickedRef.current.filter((c) => c !== color)
+            : pickedRef.current.map((c) => (c === color ? convertedColor : c));
           pickedRef.current = updated;
           setPickedColors(updated);
           setCmykState("ready");
@@ -768,10 +801,25 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
     }
   }, []);
 
+  const prepareExportData = useCallback(async () => {
+    const current = resultRef.current;
+    if (current) await applyPrintCmyk(current, optionsRef.current);
+
+    const manual = pickedRef.current;
+    if (manual.length === 0 || manual.every((color) => color.cmykPrint != null)) return;
+
+    setCmykState("loading");
+    const updated = await convertColors(manual, optionsRef.current);
+    pickedRef.current = updated;
+    setPickedColors(updated);
+    setCmykState("ready");
+  }, [applyPrintCmyk, convertColors]);
+
   useImperativeHandle(
     ref,
     () => ({
       getImage: () => imageRef.current,
+      prepareExportData,
       addImageFromImage,
       addBlankFromImage,
       getChip: () => chipRef.current,
@@ -791,13 +839,13 @@ export const FaceSection = forwardRef<FaceSectionHandle, FaceSectionProps>(funct
 
         return {
           result: { ...currentResult, colors },
-          dataUrl: imageDataToPngDataUrl(currentImage.imageData),
+          dataUrl: imageDataToCmykDisplayDataUrl(currentImage.imageData),
           image: currentImage,
           side,
         };
       },
     }),
-    [addBlankFromImage, addImageFromImage, applyChip, side],
+    [addBlankFromImage, addImageFromImage, applyChip, prepareExportData, side],
   );
 
   const processing = status === "processing";

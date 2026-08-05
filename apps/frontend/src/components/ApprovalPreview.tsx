@@ -6,9 +6,11 @@ import {
   computeApprovalGeometry,
   computeApprovalPalette,
   computeTarjaOverlay,
+  approvalPaletteMinHeight,
   type ApprovalPalette,
 } from "@/lib/export/approvalLayout";
 import { fitImageToFrame } from "@/lib/export/approvalPdf";
+import { MAX_COLORS_PER_FACE } from "@/lib/color/analysis";
 import type { AnalysisResult, DominantColor, JobData } from "@/lib/types";
 
 const IMAGE_MARGIN_Y = 10;
@@ -21,6 +23,123 @@ const LABEL_H = 13;
 const LOGO_W = 24;
 const LOGO_H = (24 * 222) / 320;
 const PALETTE_W = 43.2;
+const FACE_TOP_OFFSET = 8;
+const MAX_FACE_BOX_HEIGHT = FACE_TOP_OFFSET + approvalPaletteMinHeight(MAX_COLORS_PER_FACE);
+const TARJA_ENVELOPE_SCALE = 1.15;
+
+function useCmykDisplayImage(src: string): string | null {
+  const [processed, setProcessed] = useState<{ src: string; value: string | null }>({
+    src: "",
+    value: null,
+  });
+
+  useEffect(() => {
+    if (!src) return;
+
+    let cancelled = false;
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement("canvas");
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const context = canvas.getContext("2d");
+      if (!context) {
+        if (!cancelled) setProcessed({ src, value: src });
+        return;
+      }
+
+      context.drawImage(image, 0, 0);
+      if (!cancelled) setProcessed({ src, value: canvas.toDataURL("image/png") });
+    };
+    image.onerror = () => {
+      if (!cancelled) setProcessed({ src, value: src });
+    };
+    image.src = src;
+
+    return () => {
+      cancelled = true;
+    };
+  }, [src]);
+
+  return processed.src === src ? processed.value : null;
+}
+
+function usePreparedCmykResult(result: AnalysisResult): AnalysisResult | null {
+  const ready = result.colors.every((color) => color.cmykPrint != null);
+  const [prepared, setPrepared] = useState<{
+    source: AnalysisResult | null;
+    value: AnalysisResult | null;
+  }>({
+    source: null,
+    value: null,
+  });
+
+  useEffect(() => {
+    if (ready) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const icc = await import("@/lib/color/icc");
+        const converter = await icc.createRgbToCmykConverter(result.options.iccProfileId);
+        const cmyks = converter.convert(result.colors.map((color) => color.rgb));
+        converter.close();
+        if (cancelled) return;
+        setPrepared({
+          source: result,
+          value: {
+            ...result,
+            colors: result.colors.map((color, index) => ({
+              ...color,
+              cmykPrint: color.cmykPrint ?? cmyks[index],
+            })),
+          },
+        });
+      } catch {
+        if (!cancelled) setPrepared({ source: result, value: result });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ready, result]);
+
+  return ready ? result : prepared.source === result ? prepared.value : null;
+}
+
+function centeredImageY({
+  result,
+  imgX,
+  imgW,
+  imgH,
+  boxTop,
+  boxBottom,
+}: {
+  result: AnalysisResult;
+  imgX: number;
+  imgW: number;
+  imgH: number;
+  boxTop: number;
+  boxBottom: number;
+}): number {
+  const centeredY = boxTop + (boxBottom - boxTop - imgH) / 2;
+  const fitted = fitImageToFrame(result, imgX, centeredY, imgW, imgH);
+  const tarja = computeTarjaOverlay(
+    result.magneticStripePosition,
+    fitted.x,
+    fitted.y,
+    fitted.width,
+    fitted.height,
+  );
+  if (!tarja) return centeredY;
+
+  const visualTop = Math.min(fitted.y, tarja.y);
+  const visualBottom = Math.max(fitted.y + fitted.height, tarja.y + tarja.h);
+  const visualCenter = (visualTop + visualBottom) / 2;
+  const boxCenter = (boxTop + boxBottom) / 2;
+  return centeredY + boxCenter - visualCenter;
+}
 
 const mm = (v: number, scale: number) => `${Math.round(v * scale)}px`;
 
@@ -45,8 +164,6 @@ function PaletteBox({
   scale: number;
 }) {
   const hasName = Boolean(color.name && color.name.trim());
-  const { r, g, b } = color.rgb;
-  const rgb = `rgb(${r}, ${g}, ${b})`;
 
   return (
     <div
@@ -61,7 +178,10 @@ function PaletteBox({
     >
       <div
         className="w-full border-b border-slate-200"
-        style={{ height: mm(3.6, scale), backgroundColor: rgb }}
+        style={{
+          height: mm(3.6, scale),
+          backgroundColor: color.hex,
+        }}
          />
       <div className="flex h-[calc(100%-3.6mm)] items-center justify-center px-[2px]">
         {hasName ? (
@@ -183,9 +303,22 @@ export function ApprovalPreviewPage({
   scaleOverride?: number | null;
   captureRef?: RefObject<HTMLDivElement | null>;
 }) {
+  const displayResult = usePreparedCmykResult(result);
+  const preparedVersoResult = usePreparedCmykResult(verso?.result ?? result);
+  const displayVersoResult = verso ? preparedVersoResult : null;
+  const displayFrontUrl = useCmykDisplayImage(previewDataUrl);
+  const displayVersoUrl = useCmykDisplayImage(verso?.previewDataUrl ?? "");
   const geo = useMemo(
-    () =>
-      computeApprovalGeometry({
+    () => {
+      const hasVersoImage = Boolean(verso?.previewDataUrl?.trim());
+      const imageTopOffset = hasVersoImage ? FACE_TOP_OFFSET + 8 : FACE_TOP_OFFSET;
+      const availableImageHeight =
+        MAX_FACE_BOX_HEIGHT - imageTopOffset - IMAGE_MARGIN_Y;
+      const hasTarja = Boolean(
+        result.magneticStripePosition || verso?.result.magneticStripePosition,
+      );
+
+      return computeApprovalGeometry({
         result,
         pageW: PAGE_W,
         pageH: PAGE_H,
@@ -193,43 +326,85 @@ export function ApprovalPreviewPage({
         labelW: LABEL_W,
         labelH: LABEL_H,
         labelGap: 5,
-        hasVerso: Boolean(verso?.previewDataUrl?.trim()),
+        hasVerso: hasVersoImage,
         imageMarginY: IMAGE_MARGIN_Y,
         paletteW: PALETTE_W,
-      }),
+        maxImageHeight: availableImageHeight / (hasTarja ? TARJA_ENVELOPE_SCALE : 1),
+      });
+    },
     [result, verso],
   );
   const [containerRef, responsiveScale] = useResponsiveScale();
   const scale = scaleOverride ?? responsiveScale;
   const hasFrontImage = Boolean(previewDataUrl?.trim());
   const hasVersoImage = Boolean(verso?.previewDataUrl?.trim());
+  const previewLoading =
+    (hasFrontImage && !displayFrontUrl) ||
+    (hasVersoImage && !displayVersoUrl) ||
+    !displayResult ||
+    (hasVersoImage && !displayVersoResult);
   const imageBottom = geo.imgY + geo.imgH;
+  const frontBoxTop = MARGIN + 37;
+  const frontPaletteY = frontBoxTop + FACE_TOP_OFFSET;
+  const frontMaxBoxBottom = frontBoxTop + MAX_FACE_BOX_HEIGHT;
   const frontBoxBottom = hasFrontImage
-    ? imageBottom + IMAGE_MARGIN_Y
-    : MARGIN + 37;
+    ? Math.min(
+        frontMaxBoxBottom,
+        Math.max(
+          imageBottom + IMAGE_MARGIN_Y,
+          frontPaletteY + approvalPaletteMinHeight(displayResult?.colors.length ?? result.colors.length),
+        ),
+      )
+    : frontBoxTop;
   const versoTopLineY = frontBoxBottom + 2;
   const versoBottomLineY = versoTopLineY + 8;
-  const versoY = versoBottomLineY + IMAGE_MARGIN_Y;
+  const versoFrameY = versoBottomLineY + IMAGE_MARGIN_Y;
   const versoW = hasVersoImage ? geo.imgW : 0;
   const versoH = hasVersoImage ? geo.imgH : 0;
-  const versoBoxBottom =
-    versoY + versoH + IMAGE_MARGIN_Y;
-  const fittedFront = fitImageToFrame(result, geo.imgX, geo.imgY, geo.imgW, geo.imgH);
+  const versoPaletteMinBottom =
+    versoBottomLineY +
+    approvalPaletteMinHeight(displayVersoResult?.colors.length ?? verso?.result.colors.length ?? 0);
+  const versoMaxBoxBottom = versoTopLineY + MAX_FACE_BOX_HEIGHT;
+  const versoBoxBottom = hasVersoImage
+    ? Math.min(
+        versoMaxBoxBottom,
+        Math.max(versoFrameY + versoH + IMAGE_MARGIN_Y, versoPaletteMinBottom),
+      )
+    : versoFrameY;
+  const frontImageY = centeredImageY({
+    result,
+    imgX: geo.imgX,
+    imgW: geo.imgW,
+    imgH: geo.imgH,
+    boxTop: frontPaletteY,
+    boxBottom: frontBoxBottom,
+  });
+  const versoY = hasVersoImage
+      ? centeredImageY({
+        result: verso!.result,
+        imgX: geo.imgX,
+        imgW: versoW,
+        imgH: versoH,
+        boxTop: versoBottomLineY,
+        boxBottom: versoBoxBottom,
+      })
+    : versoFrameY;
+  const fittedFront = fitImageToFrame(result, geo.imgX, frontImageY, geo.imgW, geo.imgH);
   const fittedVerso = verso
     ? fitImageToFrame(verso.result, geo.imgX, versoY, versoW, versoH)
     : null;
 
   const frontPalette = computeApprovalPalette({
-    colors: result.colors,
-    x: geo.paletteX,
-    y: MARGIN + 37 + 8,
+      colors: displayResult?.colors ?? result.colors,
+      x: geo.paletteX,
+      y: frontPaletteY,
     w: PALETTE_W,
     h: frontBoxBottom - (MARGIN + 37 + 8),
   });
   const versoPalette =
     verso && versoH > 0
       ? computeApprovalPalette({
-          colors: verso.result.colors,
+          colors: displayVersoResult?.colors ?? verso.result.colors,
           x: geo.paletteX,
           y: versoBottomLineY,
           w: PALETTE_W,
@@ -546,7 +721,7 @@ export function ApprovalPreviewPage({
           className="absolute"
           style={{
             left: mm(geo.imgX - 3, scale),
-            top: mm(geo.imgY - 3, scale),
+            top: mm(frontImageY - 3, scale),
             width: mm(geo.imgW + 6, scale),
             height: mm(geo.imgH + 6, scale),
             backgroundColor: "transparent",
@@ -554,15 +729,16 @@ export function ApprovalPreviewPage({
           }}
         />}
         {hasFrontImage && <img
-          src={previewDataUrl}
+          src={displayFrontUrl ?? previewDataUrl}
           alt="Arte"
           className="absolute"
           style={{
             left: mm(geo.imgX, scale),
-            top: mm(geo.imgY, scale),
-            width: mm(geo.imgW, scale),
+            top: mm(frontImageY, scale),
+           width: mm(geo.imgW, scale),
             height: mm(geo.imgH, scale),
             objectFit: "contain",
+            opacity: displayFrontUrl ? 1 : 0,
             zIndex: 1,
           }}
         />}
@@ -622,7 +798,13 @@ export function ApprovalPreviewPage({
           );
         })()}
 
-        {hasFrontImage && <PaletteColumn palette={frontPalette} result={result} scale={scale} />}
+        {hasFrontImage && (
+          <PaletteColumn
+            palette={frontPalette}
+            result={displayResult ?? result}
+            scale={scale}
+          />
+        )}
 
         {verso && hasVersoImage && versoH > 0 && versoW > 0 && (
           <>
@@ -638,7 +820,7 @@ export function ApprovalPreviewPage({
               }}
             />
             <img
-              src={verso.previewDataUrl}
+              src={displayVersoUrl ?? verso.previewDataUrl}
               alt="Arte do verso"
               className="absolute"
               style={{
@@ -647,6 +829,7 @@ export function ApprovalPreviewPage({
                 width: mm(versoW, scale),
                 height: mm(versoH, scale),
                 objectFit: "contain",
+                opacity: displayVersoUrl ? 1 : 0,
                 zIndex: 1,
               }}
             />
@@ -706,7 +889,11 @@ export function ApprovalPreviewPage({
               );
             })()}
             {versoPalette && (
-              <PaletteColumn palette={versoPalette} result={verso.result} scale={scale} />
+              <PaletteColumn
+                palette={versoPalette}
+                result={displayVersoResult ?? verso.result}
+                scale={scale}
+              />
             )}
           </>
         )}
@@ -956,6 +1143,18 @@ export function ApprovalPreviewPage({
         >
           Aviso: os valores CMYK são estimativas para orientação. Confira a prova final antes da impressão.
         </p>
+        {previewLoading && (
+          <div
+            className="absolute inset-0 z-[100] flex flex-col items-center justify-center gap-3 bg-white/90 backdrop-blur-[2px]"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="h-9 w-9 animate-spin rounded-full border-4 border-slate-200 border-t-orange-500" />
+            <span className="text-xs font-bold uppercase tracking-[0.18em] text-slate-500">
+              Preparando cores CMYK...
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );

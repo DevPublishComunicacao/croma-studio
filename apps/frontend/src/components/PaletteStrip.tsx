@@ -21,12 +21,11 @@ function colorCmyk(color: DominantColor): Cmyk | null {
 }
 
 export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripProps) {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
 
   if (colors.length === 0) return null;
 
-  async function copyCmyk(color: DominantColor, index: number) {
+  async function copyCmyk(color: DominantColor) {
     const cmyk = colorCmyk(color);
     if (!cmyk) return;
     const text = `C: ${cmyk.c}% M: ${cmyk.m}% Y: ${cmyk.y}% K: ${cmyk.k}%`;
@@ -43,10 +42,8 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
         document.execCommand("copy");
         textarea.remove();
       }
-      setCopiedIndex(index);
-      window.setTimeout(() => setCopiedIndex(null), 1300);
     } catch {
-      setCopiedIndex(null);
+      return;
     }
   }
 
@@ -65,21 +62,18 @@ export function PaletteStrip({ colors, onRemove, onNameChange }: PaletteStripPro
               type="button"
                title={`${color.manual ? "CMYK" : formatPercentage(color.percentage)}`}
                aria-label={`Visualizar CMYK da cor ${color.rank}`}
-                onClick={() => copyCmyk(color, index)}
+                 onClick={() => copyCmyk(color)}
                 className="w-full focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
               >
-                <span
-                className="flex h-9 w-full items-center justify-center font-mono text-[10px] font-bold transition-colors"
-                style={{ backgroundColor: color.hex }}
-              >
-                <span className="text-white/0 drop-shadow-sm transition-colors group-hover:text-white/90">
-                   {copiedIndex === index
-                     ? "OK!"
-                     : colorCmyk(color)
-                       ? cmykLines(colorCmyk(color)!).map((line) => <span key={line}>{line}</span>)
-                       : "CMYK indisponível"}
-                </span>
-              </span>
+                 <span
+                 className="relative flex h-9 w-full items-center justify-center overflow-hidden font-mono text-[10px] font-bold transition-colors"
+               >
+                 <span
+                   className="absolute inset-0"
+                   style={{ backgroundColor: color.hex }}
+                   aria-hidden="true"
+                 />
+               </span>
             </button>
 
             {isEditing ? (

@@ -31,6 +31,8 @@ export interface ApprovalPalette {
   boxes: ApprovalPaletteBox[];
 }
 
+const PALETTE_BOTTOM_PADDING = 2;
+
 export interface ApprovalPageGeometry {
   imgX: number;
   imgY: number;
@@ -99,6 +101,7 @@ export interface ApprovalGeometryParams {
   hasVerso?: boolean;
   imageMarginY?: number;
   paletteW?: number;
+  maxImageHeight?: number;
 }
 
 export function computeApprovalLabelsForImage({
@@ -226,14 +229,14 @@ export function computeApprovalPalette({
   const count = Math.max(1, colors.length);
   const rows = Math.ceil(count / cols);
   const boxW = (w - 2 - (cols - 1) * boxGap) / cols;
-  const availH = h - headerH - 2;
+  const availH = h - headerH - 2 - PALETTE_BOTTOM_PADDING;
   const boxH = Math.min(
     maxBoxH,
     Math.max(minBoxH, (availH - (rows - 1) * boxGap) / rows),
   );
   const boxes: ApprovalPaletteBox[] = colors.map((color, index) => ({
     color,
-    x: x + 1 + (index % cols) * (boxW + boxGap),
+    x: x + (index % cols) * (boxW + boxGap),
     y: y + headerH + 2 + Math.floor(index / cols) * (boxH + boxGap),
     w: boxW,
     h: boxH,
@@ -249,6 +252,17 @@ export function computeApprovalPalette({
   };
 }
 
+export function approvalPaletteMinHeight(
+  colorCount: number,
+  headerH = 11,
+  boxGap = 1.5,
+  cols = 3,
+  minBoxH = 16,
+): number {
+  const rows = Math.ceil(Math.max(1, colorCount) / cols);
+  return headerH + 2 + rows * minBoxH + (rows - 1) * boxGap + PALETTE_BOTTOM_PADDING;
+}
+
 export function computeApprovalGeometry({
   result,
   pageW,
@@ -260,6 +274,7 @@ export function computeApprovalGeometry({
   hasVerso = false,
   imageMarginY = 0,
   paletteW = 0,
+  maxImageHeight = Number.POSITIVE_INFINITY,
 }: ApprovalGeometryParams): ApprovalPageGeometry {
   const bottomZoneTop = pageH - margin - (hasVerso ? 90 : 42);
   const leftZoneRight = margin + labelW + 1;
@@ -279,7 +294,7 @@ export function computeApprovalGeometry({
 
   const naturalW = Math.max(1, result.imageWidth);
   const naturalH = Math.max(1, result.imageHeight);
-  const scale = Math.min(areaW / naturalW, maxH / naturalH);
+  const scale = Math.min(areaW / naturalW, maxH / naturalH, maxImageHeight / naturalH);
 
   const imgW = naturalW * scale;
   const imgH = naturalH * scale;

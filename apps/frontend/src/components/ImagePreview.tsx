@@ -29,7 +29,13 @@ interface HoverState {
   screenX: number;
   screenY: number;
   color: PickedColor;
+  imageX: number;
+  imageY: number;
+  imageWidth: number;
+  imageHeight: number;
 }
+
+const MAGNIFIER_ZOOM = 5;
 
 function cmykLabel(color: PickedColor): string {
   const cmyk = color.cmyk ?? rgbToCmykApprox(color.rgb);
@@ -46,6 +52,7 @@ export function ImagePreview({
   onPick,
 }: ImagePreviewProps) {
   const imgRef = useRef<HTMLImageElement | null>(null);
+  const sampleCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [hover, setHover] = useState<HoverState | null>(null);
   const pickerActive = pickerMode !== null;
   const isBlankRecipient = image.fileName.endsWith("-recipiente.png");
@@ -68,11 +75,34 @@ export function ImagePreview({
       );
 
       const idx = (y * image.width + x) * 4;
-      const rgb: Rgb = {
+      let rgb: Rgb = {
         r: image.imageData.data[idx],
         g: image.imageData.data[idx + 1],
         b: image.imageData.data[idx + 2],
       };
+
+      // Sample the same rendered image the user sees, not a separate decoded buffer.
+      const sampleCanvas = sampleCanvasRef.current ?? document.createElement("canvas");
+      sampleCanvasRef.current = sampleCanvas;
+      sampleCanvas.width = 1;
+      sampleCanvas.height = 1;
+      const sampleContext = sampleCanvas.getContext("2d");
+      if (sampleContext && img.naturalWidth > 0 && img.naturalHeight > 0) {
+        sampleContext.clearRect(0, 0, 1, 1);
+        sampleContext.drawImage(
+          img,
+          (x / Math.max(1, image.width - 1)) * (img.naturalWidth - 1),
+          (y / Math.max(1, image.height - 1)) * (img.naturalHeight - 1),
+          1,
+          1,
+          0,
+          0,
+          1,
+          1,
+        );
+        const sampled = sampleContext.getImageData(0, 0, 1, 1).data;
+        rgb = { r: sampled[0], g: sampled[1], b: sampled[2] };
+      }
 
       let cmyk: Cmyk | null = null;
       if (image.hasNativeCmyk && image.nativeCmyk) {
@@ -125,7 +155,16 @@ export function ImagePreview({
       }
       const color = readPixel(e.clientX, e.clientY);
       if (color) {
-        setHover({ screenX: e.clientX, screenY: e.clientY, color });
+        const rect = e.currentTarget.getBoundingClientRect();
+        setHover({
+          screenX: e.clientX,
+          screenY: e.clientY,
+          color,
+          imageX: e.clientX - rect.left,
+          imageY: e.clientY - rect.top,
+          imageWidth: rect.width,
+          imageHeight: rect.height,
+        });
       }
     },
     [pickerActive, readPixel],
@@ -220,7 +259,7 @@ export function ImagePreview({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             ref={imgRef}
-            src={image.previewUrl}
+             src={image.previewUrl}
             alt={`Pré-visualização de ${image.fileName}`}
             onMouseMove={handleMouseMove}
             onMouseLeave={handleMouseLeave}
@@ -258,21 +297,44 @@ export function ImagePreview({
           >
             <div className="relative -translate-x-1/2 -translate-y-1/2">
               <div
-                className="absolute left-0 top-0 h-10 w-10 -translate-x-1/2 -translate-y-1/2 rounded-full border-4 border-white shadow-lg ring-2 ring-slate-900/40"
-                style={{ backgroundColor: hover.color.hex }}
+                className="absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full border-4 border-white shadow-xl ring-2 ring-slate-900/50"
+                style={{
+                  width: "4cm",
+                  height: "4cm",
+                  backgroundColor: hover.color.hex,
+                }}
               >
-                <span className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2 rounded-full bg-slate-900/70" />
-                <span className="absolute left-0 top-1/2 h-1.5 w-3 -translate-y-1/2 border-r-2 border-slate-900/70" />
-                <span className="absolute right-0 top-1/2 h-1.5 w-3 -translate-y-1/2 border-l-2 border-slate-900/70" />
-                <span className="absolute left-1/2 top-0 h-3 w-1.5 -translate-x-1/2 border-b-2 border-slate-900/70" />
-                <span className="absolute bottom-0 left-1/2 h-3 w-1.5 -translate-x-1/2 border-t-2 border-slate-900/70" />
+                {/* Position the sampled pixel under the geometric center of the cross. */}
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={image.previewUrl}
+                  alt=""
+                  aria-hidden="true"
+                  className="pointer-events-none absolute max-w-none"
+                  style={{
+                    width: hover.imageWidth * MAGNIFIER_ZOOM,
+                    height: hover.imageHeight * MAGNIFIER_ZOOM,
+                    left: `calc(50% - ${hover.imageX * MAGNIFIER_ZOOM}px)`,
+                    top: `calc(50% - ${hover.imageY * MAGNIFIER_ZOOM}px)`,
+                  }}
+                />
+                <span className="absolute left-1/2 top-1/2 h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white bg-slate-900/25 shadow-[0_0_0_1px_rgba(15,23,42,0.8)]" />
+                <span className="absolute left-1/2 top-0 h-full w-px -translate-x-1/2 bg-white shadow-[1px_0_0_rgba(15,23,42,0.75)]" />
+                <span className="absolute left-0 top-1/2 h-px w-full -translate-y-1/2 bg-white shadow-[0_1px_0_rgba(15,23,42,0.75)]" />
               </div>
-              <div className="absolute left-1/2 top-7 flex -translate-x-1/2 flex-col items-center gap-1">
+              <div className="absolute left-1/2 top-[calc(2cm+8px)] flex -translate-x-1/2 items-center gap-1">
                 <span
-                   className="whitespace-nowrap rounded-md border border-slate-300 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-tight text-slate-800 shadow-sm"
+                  className="h-4 w-4 shrink-0 rounded-sm border border-slate-300 shadow-sm"
+                  style={{
+                    backgroundColor: hover.color.hex,
+                  }}
+                  aria-label={`Cor adquirida ${hover.color.hex}`}
+                />
+                <span
+                  className="whitespace-nowrap rounded-md border border-slate-300 px-1.5 py-0.5 font-mono text-[9px] font-bold tracking-tight text-slate-800 shadow-sm"
                   style={{ backgroundColor: "rgba(255,255,255,0.95)" }}
                 >
-                   {cmykLabel(hover.color)}
+                  {cmykLabel(hover.color)}
                 </span>
               </div>
             </div>
