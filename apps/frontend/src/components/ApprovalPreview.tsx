@@ -557,7 +557,7 @@ export function ApprovalPreviewPage({
                           scale,
                         ),
                         paddingRight: mm(1.5, scale),
-                         fontSize: mm(2.2, scale),
+                         fontSize: mm(2.7, scale),
                         fontFamily: "Helvetica, Arial, sans-serif",
                       }}
                       key={field.label}
@@ -616,7 +616,7 @@ export function ApprovalPreviewPage({
                     style={{
                       paddingLeft: mm(3, scale),
                       paddingRight: mm(1.5, scale),
-                       fontSize: mm(2.2, scale),
+                       fontSize: mm(2.7, scale),
                       fontFamily: "Helvetica, Arial, sans-serif",
                     }}
                     key={field.label}
@@ -660,9 +660,9 @@ export function ApprovalPreviewPage({
              style={{
                top: "50%",
                transform: "translateY(-50%)",
-               padding: `0 ${mm(3, scale)}`,
-               fontSize: mm(2.6, scale),
-               fontFamily: "Helvetica, Arial, sans-serif",
+                padding: `0 ${mm(3, scale)}`,
+                fontSize: mm(3.1, scale),
+                fontFamily: "Helvetica, Arial, sans-serif",
              }}
            >
               {job?.acabamento?.trim() || ""}
