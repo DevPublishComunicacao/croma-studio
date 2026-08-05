@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 
 import { useGlobalLoading } from "@/components/GlobalLoadingProvider";
 import { deleteRemoteJob, getRemoteJob, listRemoteJobs, type RemoteJobSummary } from "@/lib/api/client";
+import { clearApprovalPreview } from "@/lib/export/approvalPreviewStorage";
 import { clearJobData, clearJobId, saveJobData, saveJobId } from "@/lib/job/storage";
 
 function formatDate(value: string) {
@@ -27,6 +28,7 @@ export default function LayoutsPage() {
 
   function handleNewLayout() {
     startLoading("Iniciando novo layout...");
+    void clearApprovalPreview();
     clearJobData();
     clearJobId();
     router.push("/");
@@ -43,6 +45,7 @@ export default function LayoutsPage() {
       stopLoading();
       return;
     }
+    void clearApprovalPreview();
     saveJobData(result.job);
     saveJobId(result.job.id);
     router.push("/");

@@ -9,6 +9,7 @@ import { saveRemoteExport } from "@/lib/api/client";
 import { approvalExportFileName } from "@/lib/export/approvalPdf";
 import { loadApprovalPreview } from "@/lib/export/approvalPreviewStorage";
 import type { ApprovalPreviewSession } from "@/lib/export/approvalPreviewStorage";
+import { loadJobId } from "@/lib/job/storage";
 
 type ExportKind = "pdf" | "image";
 type ExportResolution = "low" | "medium" | "high";
@@ -73,11 +74,23 @@ export default function PreviewPage() {
   const [exportKind, setExportKind] = useState<ExportKind | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      setSession(loadApprovalPreview());
-      setHydrated(true);
+      void loadApprovalPreview().then((stored) => {
+        if (cancelled) return;
+        const currentJobId = loadJobId();
+        const session =
+          stored && stored.jobId && currentJobId && stored.jobId !== currentJobId
+            ? null
+            : stored;
+        setSession(session);
+        setHydrated(true);
+      });
     }, 0);
-    return () => window.clearTimeout(timer);
+    return () => {
+      window.clearTimeout(timer);
+      cancelled = true;
+    };
   }, []);
 
   async function handleDownload(resolution: ExportResolution) {

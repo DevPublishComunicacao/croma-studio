@@ -379,7 +379,7 @@ export default function Analise() {
     await persistCombinedData();
     const parts = getCombinedData();
     if (parts.length === 0) return;
-    saveApprovalPreview({
+    await saveApprovalPreview({
       pages: parts.map((part) => ({
         result: part.result,
         previewDataUrl: part.dataUrl,
